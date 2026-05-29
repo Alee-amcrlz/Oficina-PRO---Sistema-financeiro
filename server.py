@@ -55,6 +55,18 @@ BUDGET_COLUMNS = [
     "updatedAt",
 ]
 
+PART_COLUMNS = [
+    "brand",
+    "code",
+    "description",
+    "costPrice",
+    "salePrice",
+    "stockQuantity",
+    "serialNumber",
+    "createdAt",
+    "updatedAt",
+]
+
 
 def connect():
     conn = sqlite3.connect(DB_PATH)
@@ -117,23 +129,49 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_budgets_status ON budgets(status);
             CREATE INDEX IF NOT EXISTS idx_budgets_created ON budgets(createdAt);
             CREATE INDEX IF NOT EXISTS idx_budgets_approved ON budgets(approvedAt);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
+                ON users(lower(username))
+                WHERE username IS NOT NULL AND trim(username) <> '';
 
             CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS parts_inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brand TEXT NOT NULL,
+                code TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL,
+                costPrice REAL NOT NULL DEFAULT 0,
+                salePrice REAL NOT NULL DEFAULT 0,
+                stockQuantity INTEGER NOT NULL DEFAULT 0,
+                serialNumber TEXT,
+                createdAt TEXT,
+                updatedAt TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_parts_inventory_code ON parts_inventory(code);
+            CREATE INDEX IF NOT EXISTS idx_parts_inventory_description ON parts_inventory(description COLLATE NOCASE);
             """
         )
         master_hash = hashlib.sha256("Master@123".encode("utf-8")).hexdigest()
         conn.execute(
             """
-            INSERT INTO users (name, email, passwordHash, role, accessLevel, blocked, createdAt)
-            SELECT 'MASTER', 'master@oficina.local', ?, 'admin', 'administrador', 0, datetime('now')
+            INSERT INTO users (name, username, email, passwordHash, role, accessLevel, blocked, createdAt)
+            SELECT 'MASTER', 'master', 'master@oficina.local', ?, 'admin', 'administrador', 0, datetime('now')
             WHERE NOT EXISTS (
                 SELECT 1 FROM users WHERE lower(email) = 'master@oficina.local'
             )
             """,
             (master_hash,),
+        )
+        conn.execute(
+            """
+            UPDATE users
+            SET username = COALESCE(NULLIF(username, ''), 'master')
+            WHERE lower(email) = 'master@oficina.local'
+            """
         )
         conn.execute(
             """
@@ -160,6 +198,8 @@ def init_db():
                     "budgets_manage",
                     "budgets_approve",
                     "budgets_delete",
+                    "inventory_view",
+                    "inventory_manage",
                     "billing_view",
                     "billing_edit",
                 ],
@@ -189,9 +229,14 @@ def row_to_budget(row):
     return item
 
 
+def row_to_part(row):
+    return dict(row) if row is not None else None
+
+
 def normalize_user(payload):
     data = {key: payload.get(key) for key in USER_COLUMNS}
     data["email"] = str(data.get("email") or "").lower().strip()
+    data["username"] = str(data.get("username") or "").lower().strip() or None
     data["blocked"] = 1 if data.get("blocked") else 0
     return data
 
@@ -204,6 +249,24 @@ def normalize_budget(payload):
     data["laborValue"] = float(data.get("laborValue") or 0)
     data["partsValue"] = float(data.get("partsValue") or 0)
     return data
+
+
+def normalize_part(payload, existing_code=None):
+    data = {key: payload.get(key) for key in PART_COLUMNS}
+    data["brand"] = str(data.get("brand") or "").strip()
+    data["code"] = str(data.get("code") or existing_code or "").strip()
+    data["description"] = str(data.get("description") or "").strip()
+    data["costPrice"] = float(data.get("costPrice") or 0)
+    data["salePrice"] = float(data.get("salePrice") or 0)
+    data["stockQuantity"] = int(data.get("stockQuantity") or 0)
+    data["serialNumber"] = str(data.get("serialNumber") or "").strip()
+    return data
+
+
+def next_part_code(conn):
+    row = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'parts_inventory'").fetchone()
+    next_id = int(row["seq"] or 0) + 1 if row else 1
+    return f"PEC-{next_id:05d}"
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -251,10 +314,31 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(row_to_user(row))
                 return
 
+            if path == "/api/users/by-login":
+                login = (query.get("login") or [""])[0].lower().strip()
+                with connect() as conn:
+                    row = conn.execute(
+                        """
+                        SELECT * FROM users
+                        WHERE lower(email) = ? OR lower(username) = ?
+                        """,
+                        (login, login),
+                    ).fetchone()
+                self.send_json(row_to_user(row))
+                return
+
             if path == "/api/budgets":
                 with connect() as conn:
                     rows = conn.execute("SELECT * FROM budgets ORDER BY datetime(createdAt) DESC").fetchall()
                 self.send_json([row_to_budget(row) for row in rows])
+                return
+
+            if path == "/api/parts":
+                with connect() as conn:
+                    rows = conn.execute(
+                        "SELECT * FROM parts_inventory ORDER BY datetime(createdAt) DESC, id DESC"
+                    ).fetchall()
+                self.send_json([row_to_part(row) for row in rows])
                 return
 
             if path.startswith("/api/settings/"):
@@ -300,6 +384,19 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(row_to_budget(row), 201)
                 return
 
+            if parsed.path == "/api/parts":
+                with connect() as conn:
+                    data = normalize_part(payload, next_part_code(conn))
+                    columns = ", ".join(PART_COLUMNS)
+                    marks = ", ".join(["?"] * len(PART_COLUMNS))
+                    cursor = conn.execute(
+                        f"INSERT INTO parts_inventory ({columns}) VALUES ({marks})",
+                        [data[column] for column in PART_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM parts_inventory WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                self.send_json(row_to_part(row), 201)
+                return
+
             self.send_json({"error": "Rota não encontrada."}, 404)
         except sqlite3.IntegrityError as error:
             self.send_json({"error": str(error)}, 409)
@@ -337,6 +434,20 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(row_to_budget(row))
                 return
 
+            if parsed.path.startswith("/api/parts/"):
+                part_id = int(parsed.path.rsplit("/", 1)[-1])
+                with connect() as conn:
+                    current = conn.execute("SELECT code FROM parts_inventory WHERE id = ?", (part_id,)).fetchone()
+                    data = normalize_part(payload, current["code"] if current else None)
+                    assignments = ", ".join([f"{column} = ?" for column in PART_COLUMNS])
+                    conn.execute(
+                        f"UPDATE parts_inventory SET {assignments} WHERE id = ?",
+                        [data[column] for column in PART_COLUMNS] + [part_id],
+                    )
+                    row = conn.execute("SELECT * FROM parts_inventory WHERE id = ?", (part_id,)).fetchone()
+                self.send_json(row_to_part(row))
+                return
+
             if parsed.path.startswith("/api/settings/"):
                 key = parsed.path.rsplit("/", 1)[-1]
                 with connect() as conn:
@@ -370,6 +481,13 @@ class Handler(SimpleHTTPRequestHandler):
                 budget_id = int(parsed.path.rsplit("/", 1)[-1])
                 with connect() as conn:
                     conn.execute("DELETE FROM budgets WHERE id = ?", (budget_id,))
+                self.send_json({"ok": True})
+                return
+
+            if parsed.path.startswith("/api/parts/"):
+                part_id = int(parsed.path.rsplit("/", 1)[-1])
+                with connect() as conn:
+                    conn.execute("DELETE FROM parts_inventory WHERE id = ?", (part_id,))
                 self.send_json({"ok": True})
                 return
 

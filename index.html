@@ -9,10 +9,9 @@
   <body>
     <main id="authView" class="auth-shell">
       <section class="auth-panel">
-        <div>
-          <p class="eyebrow">Oficina Pro</p>
-          <h1>Atendimento, aprovações e financeiro em um só lugar.</h1>
-          <p class="muted">Controle o ciclo financeiro da oficina desde a proposta enviada ao cliente até o fluxo de caixa aprovado.</p>
+        <div class="auth-brand">
+          <img src="assets/oficina-pro-logo-transparent.png" alt="Oficina Pro" class="auth-logo">
+          <p class="muted">Orçamentos, faturamento e estoque em uma rotina simples para a oficina.</p>
         </div>
 
         <form id="loginForm" class="auth-form">
@@ -21,8 +20,8 @@
             <button type="button" id="showRegister" class="link-button hidden">Criar usuário</button>
           </div>
           <label>
-            E-mail
-            <input id="loginEmail" type="email" autocomplete="email" required>
+            E-mail ou usuário
+            <input id="loginEmail" type="text" autocomplete="username" required>
           </label>
           <label>
             Senha
@@ -96,6 +95,15 @@
               <button type="button" class="side-submenu-button" data-finance-section="payable">Contas à pagar</button>
               <button type="button" class="side-submenu-button" data-finance-section="costs">Tabela de custos</button>
               <button type="button" class="side-submenu-button" data-finance-section="cashflow">Fluxo de caixa</button>
+            </div>
+          </div>
+          <div class="nav-group" data-feature="inventory">
+            <button class="nav-button nav-button-parent" data-menu-parent="inventory" data-feature="inventory">
+              <span>Gerenciamento de Estoque</span>
+              <span class="nav-arrow">›</span>
+            </button>
+            <div class="side-submenu">
+              <button type="button" class="side-submenu-button" data-inventory-section="parts">Cadastro de peças</button>
             </div>
           </div>
           <div class="nav-group" data-feature="settings">
@@ -247,6 +255,7 @@
                 </div>
                 <div class="line-grid line-grid-head">
                   <span>Quantidade</span>
+                  <span>Código</span>
                   <span>Descrição</span>
                   <span>Valor unitário</span>
                   <span></span>
@@ -344,6 +353,51 @@
               </div>
             </div>
             <p class="empty">Funcionalidade pronta para ser estruturada na próxima etapa.</p>
+          </div>
+        </section>
+
+        <section id="inventoryView" class="view hidden">
+          <div class="inventory-layout">
+            <form id="partCreateForm" class="panel form-grid">
+              <div class="panel-head">
+                <div>
+                  <h2>Cadastro de peças</h2>
+                  <p class="muted">Para reposição, informe o código ou pesquise a peça cadastrada.</p>
+                </div>
+                <button type="button" id="openPartLookupButton" class="secondary">Pesquisar peças</button>
+              </div>
+              <label>
+                Marca
+                <input id="partBrand" type="text" required>
+              </label>
+              <label>
+                Código de cadastro
+                <input id="partCodePreview" type="text" placeholder="Gerado automaticamente para novas peças">
+              </label>
+              <label class="full">
+                Descrição
+                <input id="partDescription" type="text" required>
+              </label>
+              <label>
+                Preço de custo
+                <input id="partCostPrice" type="number" min="0" step="0.01" required>
+              </label>
+              <label>
+                Preço de venda
+                <input id="partSalePrice" type="number" min="0" step="0.01" readonly required>
+              </label>
+              <label>
+                Quantidade em estoque
+                <input id="partStockQuantity" type="number" min="0" step="1" required>
+              </label>
+              <label>
+                Número de série da peça
+                <input id="partSerialNumber" type="text">
+              </label>
+              <button type="submit" class="primary full">Registrar entrada</button>
+              <button type="button" id="clearPartFormButton" class="secondary full">Limpar seleção</button>
+              <p id="partCreateMessage" class="message full"></p>
+            </form>
           </div>
         </section>
 
@@ -464,6 +518,20 @@
           <button type="button" id="modalRejectButton" class="action danger hidden">Reprovar orçamento</button>
           <button type="button" id="modalDeleteButton" class="action danger hidden">Excluir orçamento</button>
         </div>
+      </article>
+    </section>
+
+    <section id="partLookupModal" class="modal-backdrop hidden" aria-modal="true" role="dialog">
+      <article class="modal wide-modal">
+        <div class="modal-head">
+          <h2>Pesquisar peça cadastrada</h2>
+          <button type="button" id="closePartLookupModal" class="secondary">Fechar</button>
+        </div>
+        <label>
+          Buscar peça
+          <input id="partSearch" type="search" placeholder="Código, descrição, marca ou número de série">
+        </label>
+        <div id="partsInventoryTable" class="table-wrap"></div>
       </article>
     </section>
 

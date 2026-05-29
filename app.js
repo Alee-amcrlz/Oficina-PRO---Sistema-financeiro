@@ -22,23 +22,28 @@ const PERMISSIONS = {
   budgets_manage: "Criar e editar orçamentos",
   budgets_approve: "Aprovar e reprovar orçamentos",
   budgets_delete: "Excluir orçamentos",
+  inventory_view: "Visualizar estoque",
+  inventory_manage: "Cadastrar e excluir peças",
   billing_view: "Visualizar financeiro",
   billing_edit: "Editar orçamentos pelo financeiro"
 };
 const DEFAULT_PERMISSIONS = {
-  administrador: ["dashboard_view", "budgets_view", "budgets_manage", "budgets_approve", "budgets_delete", "billing_view", "billing_edit"],
+  administrador: ["dashboard_view", "budgets_view", "budgets_manage", "budgets_approve", "budgets_delete", "inventory_view", "inventory_manage", "billing_view", "billing_edit"],
   financeiro: ["dashboard_view", "billing_view"],
   analista: ["dashboard_view", "budgets_view", "budgets_manage"]
 };
 const FEATURE_ALIASES = {
   dashboard: "dashboard_view",
   budgets: "budgets_view",
+  inventory: "inventory_view",
   billing: "billing_view"
 };
 const REMEMBER_LOGIN_KEY = "oficina_remember_login";
 
 let currentUser = null;
 let budgets = [];
+let inventoryParts = [];
+let selectedInventoryPartId = null;
 let users = [];
 let accessLevelsState = { ...DEFAULT_ACCESS_LEVELS };
 let permissionsState = structuredClone(DEFAULT_PERMISSIONS);
@@ -115,12 +120,17 @@ async function findUserByEmail(email) {
   return api(`/users/by-email?email=${encodeURIComponent(String(email).toLowerCase().trim())}`);
 }
 
+async function findUserByLogin(login) {
+  return api(`/users/by-login?login=${encodeURIComponent(String(login).toLowerCase().trim())}`);
+}
+
 async function ensureMasterUser() {
   const existing = await findUserByEmail(MASTER_USER.email);
   if (existing) {
     const normalized = {
       ...existing,
       name: existing.name || MASTER_USER.name,
+      username: existing.username || "master",
       role: "admin",
       accessLevel: "administrador"
     };
@@ -130,6 +140,7 @@ async function ensureMasterUser() {
 
   await createUser({
     name: MASTER_USER.name,
+    username: "master",
     email: MASTER_USER.email,
     passwordHash: await hashPassword(MASTER_USER.password),
     role: MASTER_USER.role,
@@ -156,6 +167,24 @@ async function deleteBudget(id) {
   return api(`/budgets/${Number(id)}`, { method: "DELETE" });
 }
 
+async function createInventoryPart(part) {
+  return api("/parts", {
+    method: "POST",
+    body: JSON.stringify(part)
+  });
+}
+
+async function updateInventoryPart(part) {
+  return api(`/parts/${Number(part.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(part)
+  });
+}
+
+async function deleteInventoryPart(id) {
+  return api(`/parts/${Number(id)}`, { method: "DELETE" });
+}
+
 async function loadBudgets() {
   const all = await api("/budgets");
   const visibleBudgets = canAccess("billing_view")
@@ -165,6 +194,11 @@ async function loadBudgets() {
   budgets = visibleBudgets
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   renderAll();
+}
+
+async function loadInventoryParts() {
+  inventoryParts = await api("/parts");
+  renderInventoryPartsTable();
 }
 
 async function loadSettings() {
@@ -211,6 +245,7 @@ function showApp() {
     ? `${currentUser.name} - ADMIN`
     : currentUser.name;
   applyNavigationPermissions();
+  loadInventoryParts();
   loadBudgets();
   if (canAccess("settings")) {
     loadAllUsers();
@@ -251,6 +286,7 @@ function switchView(viewId) {
     billingView: "Financeiro / Fluxo de caixa",
     accountsPayableView: "Financeiro / Contas à pagar",
     costTableView: "Financeiro / Tabela de custos",
+    inventoryView: "Gerenciamento de Estoque / Cadastro de peças",
     settingsView: "Configurações"
   };
   $("#pageTitle").textContent = viewId === "settingsView" ? settingsSectionTitle() : titles[viewId];
@@ -319,6 +355,11 @@ function permissionsConfig() {
     if (level === "administrador" && !config[level].includes("budgets_delete")) {
       config[level].push("budgets_delete");
     }
+    if (level === "administrador") {
+      ["inventory_view", "inventory_manage"].forEach((permission) => {
+        if (!config[level].includes(permission)) config[level].push(permission);
+      });
+    }
   });
   return config;
 }
@@ -374,7 +415,9 @@ function applyNavigationPermissions() {
 function normalizeParts(budget) {
   if (Array.isArray(budget.parts) && budget.parts.length) {
     return budget.parts.map((part) => ({
+      id: part.id ? Number(part.id) : null,
       quantity: Number(part.quantity || 0),
+      code: part.code || "",
       description: part.description || "",
       value: Number(part.value || 0)
     }));
@@ -527,7 +570,7 @@ function renderItemsSummary(budget) {
   const labor = normalizeLabor(budget);
 
   const partsText = parts.length
-    ? parts.map((part) => `${part.quantity}x ${escapeHtml(part.description)} (${currency.format(Number(part.value))})`).join("<br>")
+    ? parts.map((part) => `${part.quantity}x ${part.code ? `${escapeHtml(part.code)} - ` : ""}${escapeHtml(part.description)} (${currency.format(Number(part.value))})`).join("<br>")
     : "Sem peças";
 
   const laborText = labor.length
@@ -548,6 +591,7 @@ function renderBudgetDetail(budget) {
   const partsRows = normalizeParts(budget).map((part) => `
     <tr>
       <td>${escapeHtml(part.quantity)}</td>
+      <td>${escapeHtml(part.code || "-")}</td>
       <td>${escapeHtml(part.description)}</td>
       <td>${currency.format(Number(part.value))}</td>
       <td>${currency.format(Number(part.quantity) * Number(part.value))}</td>
@@ -584,12 +628,13 @@ function renderBudgetDetail(budget) {
         <thead>
           <tr>
             <th>Quantidade</th>
+            <th>Código</th>
             <th>Descrição</th>
             <th>Valor unitário</th>
             <th>Total</th>
           </tr>
         </thead>
-        <tbody>${partsRows || '<tr><td colspan="4">Sem peças</td></tr>'}</tbody>
+        <tbody>${partsRows || '<tr><td colspan="5">Sem peças</td></tr>'}</tbody>
       </table>
     </div>
     <h3>Mão de obra</h3>
@@ -612,6 +657,7 @@ function renderAll() {
   renderMetrics();
   renderRecentBudgets();
   renderBudgetList();
+  renderInventoryPartsTable();
   renderBilling();
 }
 
@@ -792,6 +838,63 @@ function renderBudgetList() {
       </div>
     </article>
   `).join("");
+}
+
+function renderInventoryPartsTable() {
+  const container = $("#partsInventoryTable");
+  if (!container) return;
+
+  const search = ($("#partSearch")?.value || "").toLowerCase().trim();
+  const filtered = inventoryParts.filter((part) => {
+    const searchable = [
+      part.code,
+      part.brand,
+      part.description,
+      part.serialNumber
+    ].join(" ").toLowerCase();
+    return !search || searchable.includes(search);
+  });
+
+  if (!filtered.length) {
+    container.innerHTML = '<p class="empty">Nenhuma peça cadastrada.</p>';
+    return;
+  }
+
+  const rows = filtered.map((part) => `
+    <tr>
+      <td><strong>${escapeHtml(part.code)}</strong></td>
+      <td>${escapeHtml(part.brand)}</td>
+      <td>${escapeHtml(part.description)}</td>
+      <td>${currency.format(Number(part.costPrice || 0))}</td>
+      <td>${currency.format(Number(part.salePrice || 0))}</td>
+      <td>${escapeHtml(part.stockQuantity ?? 0)}</td>
+      <td>${escapeHtml(part.serialNumber || "Não informado")}</td>
+      <td>
+        ${canAccess("inventory_manage") ? `
+          <button type="button" class="action" data-part-action="select" data-id="${part.id}">Selecionar</button>
+          <button type="button" class="action danger" data-part-action="delete" data-id="${part.id}">Excluir</button>
+        ` : ""}
+      </td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Marca</th>
+          <th>Descrição</th>
+          <th>Custo</th>
+          <th>Venda</th>
+          <th>Estoque</th>
+          <th>Número de série</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 function renderBilling() {
@@ -1049,7 +1152,7 @@ function emailBudget(budget) {
     `Endereço: ${budgetAddressText(budget)}`,
     "",
     "Peças:",
-    ...parts.map((part) => `- ${part.quantity}x ${part.description}: ${currency.format(Number(part.quantity) * Number(part.value))}`),
+    ...parts.map((part) => `- ${part.quantity}x ${part.code ? `${part.code} - ` : ""}${part.description}: ${currency.format(Number(part.quantity) * Number(part.value))}`),
     `Total em peças: ${currency.format(partsTotal(budget))}`,
     "",
     "Mão de obra:",
@@ -1075,6 +1178,7 @@ function printBudget(budget) {
   const partsRows = normalizeParts(budget).map((part) => `
     <tr>
       <td>${escapeHtml(part.quantity)}</td>
+      <td>${escapeHtml(part.code || "-")}</td>
       <td>${escapeHtml(part.description)}</td>
       <td>${currency.format(Number(part.value))}</td>
       <td>${currency.format(Number(part.quantity) * Number(part.value))}</td>
@@ -1104,12 +1208,13 @@ function printBudget(budget) {
       <thead>
         <tr>
           <th>Quantidade</th>
+          <th>Código</th>
           <th>Descrição</th>
           <th>Valor unitário</th>
           <th>Total</th>
         </tr>
       </thead>
-      <tbody>${partsRows || '<tr><td colspan="4">Sem peças</td></tr>'}</tbody>
+      <tbody>${partsRows || '<tr><td colspan="5">Sem peças</td></tr>'}</tbody>
     </table>
     <p><strong>Total em peças:</strong> ${currency.format(partsTotal(budget))}</p>
     <h2>Mão de obra</h2>
@@ -1136,6 +1241,14 @@ async function changeBudgetStatus(id, status) {
   const budget = budgets.find((item) => item.id === Number(id));
   if (!budget) return;
 
+  if (status === STATUS.approved && budget.status !== STATUS.approved) {
+    const stockMessage = await discountBudgetPartsFromInventory(budget);
+    if (stockMessage) {
+      alert(stockMessage);
+      return;
+    }
+  }
+
   budget.status = status;
   budget.updatedAt = new Date().toISOString();
   if (status === STATUS.approved) {
@@ -1147,6 +1260,47 @@ async function changeBudgetStatus(id, status) {
   await updateBudget(budget);
   await loadBudgets();
   closeBudgetModal();
+}
+
+async function discountBudgetPartsFromInventory(budget) {
+  await loadInventoryParts();
+  const parts = normalizeParts(budget).filter((part) => part.id || part.code);
+  const grouped = new Map();
+
+  parts.forEach((part) => {
+    const key = part.id ? `id:${part.id}` : `code:${String(part.code).toLowerCase()}`;
+    const current = grouped.get(key) || { ...part, quantity: 0 };
+    current.quantity += Number(part.quantity || 0);
+    grouped.set(key, current);
+  });
+
+  const updates = [];
+  for (const part of grouped.values()) {
+    const inventoryPart = part.id
+      ? inventoryParts.find((item) => item.id === Number(part.id))
+      : findInventoryPartByCode(part.code);
+
+    if (!inventoryPart) {
+      return `A peça ${part.code || part.description} não foi encontrada no estoque.`;
+    }
+
+    const currentStock = Number(inventoryPart.stockQuantity || 0);
+    if (currentStock < part.quantity) {
+      return `Estoque insuficiente para ${inventoryPart.code} - ${inventoryPart.description}. Disponível: ${currentStock}. Necessário: ${part.quantity}.`;
+    }
+
+    updates.push({
+      ...inventoryPart,
+      stockQuantity: currentStock - part.quantity,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  for (const part of updates) {
+    await updateInventoryPart(part);
+  }
+  await loadInventoryParts();
+  return "";
 }
 
 async function removeBudget(id) {
@@ -1170,15 +1324,20 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function createPartRow(part = { quantity: 1, description: "", value: "" }) {
+function createPartRow(part = { quantity: 1, code: "", description: "", value: "" }) {
   const row = document.createElement("div");
   row.className = "line-grid part-row";
   row.innerHTML = `
     <input class="part-quantity" type="number" min="1" step="1" value="${escapeHtml(part.quantity || 1)}">
-    <input class="part-description" type="text" value="${escapeHtml(part.description)}" placeholder="Ex: Pastilha de freio">
+    <input class="part-code" type="text" value="${escapeHtml(part.code || "")}" placeholder="Código">
+    <div class="part-search-wrap">
+      <input class="part-description" type="text" value="${escapeHtml(part.description)}" placeholder="Ex: Pastilha de freio" autocomplete="off">
+      <div class="part-suggestions hidden"></div>
+    </div>
     <input class="part-value" type="number" min="0" step="0.01" value="${escapeHtml(part.value)}">
     <button type="button" class="remove-line" title="Remover peça">×</button>
   `;
+  if (part.id) row.dataset.partId = part.id;
   return row;
 }
 
@@ -1203,6 +1362,101 @@ function addLaborRow(item) {
   updateBudgetPreview();
 }
 
+function partMatchesSearch(part, query) {
+  const normalized = query.toLowerCase().trim();
+  if (!normalized) return false;
+  return [part.code, part.description, part.brand, part.serialNumber]
+    .join(" ")
+    .toLowerCase()
+    .includes(normalized);
+}
+
+function matchingInventoryParts(query) {
+  return inventoryParts
+    .filter((part) => partMatchesSearch(part, query))
+    .slice(0, 8);
+}
+
+function closePartSuggestions(row) {
+  row.querySelector(".part-suggestions")?.classList.add("hidden");
+}
+
+function renderPartSuggestions(row, query) {
+  const suggestions = row.querySelector(".part-suggestions");
+  if (!suggestions) return;
+
+  const matches = matchingInventoryParts(query);
+  if (!matches.length) {
+    suggestions.innerHTML = '<div class="part-suggestion-empty">Nenhuma peça encontrada</div>';
+    suggestions.classList.remove("hidden");
+    return;
+  }
+
+  suggestions.innerHTML = matches.map((part) => `
+    <button type="button" class="part-suggestion" data-id="${part.id}">
+      <strong>${escapeHtml(part.code)}</strong>
+      <span>${escapeHtml(part.description)}</span>
+      <small>${escapeHtml(part.brand)} • ${currency.format(Number(part.salePrice || 0))}</small>
+    </button>
+  `).join("");
+  suggestions.classList.remove("hidden");
+}
+
+function selectInventoryPart(row, part) {
+  if (!row || !part) return;
+  row.dataset.partId = part.id;
+  row.querySelector(".part-code").value = part.code || "";
+  row.querySelector(".part-description").value = part.description || "";
+  row.querySelector(".part-value").value = Number(part.salePrice || 0).toFixed(2);
+  closePartSuggestions(row);
+  updateBudgetPreview();
+}
+
+function findInventoryPartByCode(code) {
+  const normalized = String(code || "").trim().toLowerCase();
+  return inventoryParts.find((part) => String(part.code || "").toLowerCase() === normalized);
+}
+
+function calculateSalePrice(costPrice) {
+  return Number((Number(costPrice || 0) * 1.6).toFixed(2));
+}
+
+function updatePartSalePriceFromCost() {
+  const salePrice = calculateSalePrice($("#partCostPrice").value);
+  $("#partSalePrice").value = salePrice ? salePrice.toFixed(2) : "";
+}
+
+function fillPartForm(part) {
+  selectedInventoryPartId = part?.id || null;
+  $("#partBrand").value = part?.brand || "";
+  $("#partCodePreview").value = part?.code || "";
+  $("#partDescription").value = part?.description || "";
+  $("#partCostPrice").value = part ? Number(part.costPrice || 0).toFixed(2) : "";
+  $("#partSalePrice").value = part ? Number(part.salePrice || calculateSalePrice(part.costPrice)).toFixed(2) : "";
+  $("#partStockQuantity").value = "";
+  $("#partSerialNumber").value = part?.serialNumber || "";
+  $("#partStockQuantity").focus();
+}
+
+function clearPartForm() {
+  selectedInventoryPartId = null;
+  $("#partCreateForm").reset();
+  $("#partCodePreview").value = "";
+  $("#partSalePrice").value = "";
+  setMessage($("#partCreateMessage"), "");
+}
+
+function openPartLookupModal() {
+  $("#partSearch").value = "";
+  renderInventoryPartsTable();
+  $("#partLookupModal").classList.remove("hidden");
+  $("#partSearch").focus();
+}
+
+function closePartLookupModal() {
+  $("#partLookupModal").classList.add("hidden");
+}
+
 function isPartRowComplete(row) {
   const quantity = Number(row.querySelector(".part-quantity").value || 0);
   const description = row.querySelector(".part-description").value.trim();
@@ -1219,7 +1473,9 @@ function isLaborRowComplete(row) {
 function readPartRows() {
   return Array.from(document.querySelectorAll(".part-row"))
     .map((row) => ({
+      id: row.dataset.partId ? Number(row.dataset.partId) : null,
       quantity: Number(row.querySelector(".part-quantity").value || 0),
+      code: row.querySelector(".part-code").value.trim(),
       description: row.querySelector(".part-description").value.trim(),
       value: Number(row.querySelector(".part-value").value || 0)
     }))
@@ -1238,9 +1494,10 @@ function readLaborRows() {
 function hasIncompleteRows() {
   const incompletePart = Array.from(document.querySelectorAll(".part-row")).some((row) => {
     const quantity = Number(row.querySelector(".part-quantity").value || 0);
+    const code = row.querySelector(".part-code").value.trim();
     const description = row.querySelector(".part-description").value.trim();
     const value = Number(row.querySelector(".part-value").value || 0);
-    const touched = description || value > 0;
+    const touched = code || description || value > 0;
     return touched && (!description || quantity <= 0 || value <= 0);
   });
 
@@ -1410,6 +1667,15 @@ function openFinanceSection(section, sourceElement = null) {
   suppressClickedSubmenu(sourceElement);
 }
 
+function openInventorySection(sourceElement = null) {
+  switchView("inventoryView");
+  markParentMenu("inventory");
+  $("#pageTitle").textContent = "Gerenciamento de Estoque / Cadastro de peças";
+  $("#partCreateForm").classList.toggle("hidden", !canAccess("inventory_manage"));
+  renderInventoryPartsTable();
+  suppressClickedSubmenu(sourceElement);
+}
+
 function bindEvents() {
   $("#showRegister").addEventListener("click", () => {
     $("#loginForm").classList.add("hidden");
@@ -1451,13 +1717,13 @@ function bindEvents() {
 
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const email = $("#loginEmail").value.toLowerCase().trim();
+    const login = $("#loginEmail").value.toLowerCase().trim();
     const password = $("#loginPassword").value;
-    const user = await findUserByEmail(email);
+    const user = await findUserByLogin(login);
     const passwordHash = await hashPassword(password);
 
   if (!user || user.passwordHash !== passwordHash) {
-      setMessage($("#loginMessage"), "E-mail ou senha invalidos.");
+      setMessage($("#loginMessage"), "Usuário, e-mail ou senha inválidos.");
       return;
     }
 
@@ -1474,7 +1740,7 @@ function bindEvents() {
       role: user.role || "user",
       accessLevel: user.accessLevel || (user.role === "admin" ? "administrador" : "analista")
     };
-    updateRememberedLogin(email, password);
+    updateRememberedLogin(login, password);
     sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
     showApp();
   });
@@ -1494,6 +1760,10 @@ function bindEvents() {
   document.querySelectorAll(".nav-group").forEach((group) => group.addEventListener("mouseleave", (event) => {
     event.currentTarget.classList.remove("suppress-submenu");
   }));
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".part-row")) return;
+    document.querySelectorAll(".part-row").forEach(closePartSuggestions);
+  });
 
   $("#newBudgetButton").addEventListener("click", () => openBudgetSection("new"));
   $("#cancelEditButton").addEventListener("click", clearBudgetForm);
@@ -1507,6 +1777,9 @@ function bindEvents() {
   document.querySelectorAll("[data-finance-section]").forEach((button) => {
     button.addEventListener("click", () => openFinanceSection(button.dataset.financeSection, button));
   });
+  document.querySelectorAll("[data-inventory-section]").forEach((button) => {
+    button.addEventListener("click", () => openInventorySection(button));
+  });
   document.querySelectorAll(".side-submenu-button").forEach((button) => {
     if (!button.dataset.settingsSection) return;
     button.addEventListener("click", () => {
@@ -1516,6 +1789,81 @@ function bindEvents() {
     });
   });
   $("#userSearch").addEventListener("input", renderUsersTable);
+  $("#partSearch").addEventListener("input", renderInventoryPartsTable);
+  $("#openPartLookupButton").addEventListener("click", openPartLookupModal);
+  $("#closePartLookupModal").addEventListener("click", closePartLookupModal);
+  $("#partLookupModal").addEventListener("click", (event) => {
+    if (event.target.id === "partLookupModal") closePartLookupModal();
+  });
+  $("#clearPartFormButton").addEventListener("click", clearPartForm);
+  $("#partCostPrice").addEventListener("input", updatePartSalePriceFromCost);
+  $("#partCodePreview").addEventListener("blur", () => {
+    const part = findInventoryPartByCode($("#partCodePreview").value);
+    if (part) {
+      fillPartForm(part);
+      setMessage($("#partCreateMessage"), "Peça carregada. Informe a quantidade de entrada para somar ao estoque.", true);
+    }
+  });
+  $("#partCreateForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("inventory_manage")) return;
+
+    updatePartSalePriceFromCost();
+    const existingPart = selectedInventoryPartId
+      ? inventoryParts.find((item) => item.id === Number(selectedInventoryPartId))
+      : findInventoryPartByCode($("#partCodePreview").value);
+    const quantityEntry = Number($("#partStockQuantity").value || 0);
+    const payload = {
+      brand: $("#partBrand").value.trim(),
+      code: $("#partCodePreview").value.trim(),
+      description: $("#partDescription").value.trim(),
+      costPrice: Number($("#partCostPrice").value || 0),
+      salePrice: Number($("#partSalePrice").value || 0),
+      stockQuantity: quantityEntry,
+      serialNumber: $("#partSerialNumber").value.trim(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (existingPart) {
+      await updateInventoryPart({
+        ...existingPart,
+        ...payload,
+        code: existingPart.code,
+        stockQuantity: Number(existingPart.stockQuantity || 0) + quantityEntry,
+        createdAt: existingPart.createdAt
+      });
+    } else {
+      await createInventoryPart({
+        ...payload,
+        code: "",
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    clearPartForm();
+    setMessage($("#partCreateMessage"), existingPart ? "Entrada registrada no estoque." : "Peça cadastrada com sucesso.", true);
+    await loadInventoryParts();
+  });
+  $("#partsInventoryTable").addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-part-action]");
+    if (!button || !canAccess("inventory_manage")) return;
+
+    const part = inventoryParts.find((item) => item.id === Number(button.dataset.id));
+    if (!part) return;
+
+    if (button.dataset.partAction === "select") {
+      fillPartForm(part);
+      setMessage($("#partCreateMessage"), "Peça selecionada. Informe a quantidade de entrada para somar ao estoque.", true);
+      closePartLookupModal();
+      return;
+    }
+
+    const confirmed = confirm(`Excluir a peça ${part.code} - ${part.description}?`);
+    if (!confirmed) return;
+
+    await deleteInventoryPart(part.id);
+    await loadInventoryParts();
+  });
   $("#usersTable").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-user-action]");
     if (!button || !canAccess("settings")) return;
@@ -1600,8 +1948,25 @@ function bindEvents() {
   });
 
   $("#budgetForm").addEventListener("input", (event) => {
-    if (event.target.matches(".part-quantity, .part-value, .labor-value, .part-description, .labor-description")) {
+    if (event.target.matches(".part-quantity, .part-value, .labor-value, .part-description, .part-code, .labor-description")) {
       updateBudgetPreview();
+    }
+
+    if (event.target.matches(".part-description")) {
+      const row = event.target.closest(".part-row");
+      delete row.dataset.partId;
+      renderPartSuggestions(row, event.target.value);
+    }
+
+    if (event.target.matches(".part-code")) {
+      const row = event.target.closest(".part-row");
+      delete row.dataset.partId;
+      const part = findInventoryPartByCode(event.target.value);
+      if (part) {
+        selectInventoryPart(row, part);
+      } else {
+        renderPartSuggestions(row, event.target.value);
+      }
     }
 
     if (event.target.matches("#clientZip")) {
@@ -1619,6 +1984,12 @@ function bindEvents() {
     if (event.target.matches("#plate, #clientState")) {
       event.target.value = event.target.value.toUpperCase();
     }
+  });
+
+  $("#budgetForm").addEventListener("focusin", (event) => {
+    if (!event.target.matches(".part-description, .part-code")) return;
+    const row = event.target.closest(".part-row");
+    renderPartSuggestions(row, event.target.value);
   });
 
   $("#plate").addEventListener("blur", () => {
@@ -1649,6 +2020,14 @@ function bindEvents() {
   });
 
   $("#budgetForm").addEventListener("click", (event) => {
+    const suggestion = event.target.closest(".part-suggestion");
+    if (suggestion) {
+      const row = suggestion.closest(".part-row");
+      const part = inventoryParts.find((item) => item.id === Number(suggestion.dataset.id));
+      selectInventoryPart(row, part);
+      return;
+    }
+
     const button = event.target.closest(".remove-line");
     if (!button) return;
 
