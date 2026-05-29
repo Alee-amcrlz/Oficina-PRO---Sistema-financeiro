@@ -28,6 +28,10 @@
             Senha
             <input id="loginPassword" type="password" autocomplete="current-password" required>
           </label>
+          <label class="remember-login">
+            <input id="rememberLogin" type="checkbox">
+            <span>Lembrar usuário e senha neste computador</span>
+          </label>
           <button type="submit" class="primary">Acessar sistema</button>
           <p id="loginMessage" class="message"></p>
         </form>
@@ -69,8 +73,11 @@
               <span class="nav-arrow">›</span>
             </button>
             <div class="side-submenu">
-              <div class="side-submenu-section">
-                <div class="side-submenu-label">Orçamentos</div>
+              <div class="side-submenu-section side-submenu-flyout">
+                <button type="button" class="side-submenu-button side-submenu-trigger">
+                  <span>Orçamentos</span>
+                  <span class="nav-arrow">›</span>
+                </button>
                 <div class="side-submenu-nested">
                   <button type="button" class="side-submenu-button" data-budget-section="new">Novo orçamento</button>
                   <button type="button" class="side-submenu-button" data-budget-section="aprovado">Aprovados</button>
@@ -129,9 +136,22 @@
               <strong id="rejectedCount">0</strong>
             </article>
             <article>
-              <span>Financeiro</span>
+              <span>Faturamento mês</span>
               <strong id="revenueTotal">R$ 0,00</strong>
             </article>
+            <article>
+              <span>Faturamento previsto</span>
+              <strong id="forecastTotal">R$ 0,00</strong>
+            </article>
+          </div>
+          <div class="panel dashboard-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Resumo de faturamento</h2>
+                <p class="muted">Visão simples do mês corrente e do faturamento previsto.</p>
+              </div>
+            </div>
+            <div id="dashboardChart" class="dashboard-chart"></div>
           </div>
           <div class="panel">
             <div class="panel-head">
@@ -152,29 +172,71 @@
                 </div>
               </div>
               <label>
-                Cliente
+                Nome Completo
                 <input id="clientName" type="text" required>
               </label>
               <label>
-                E-mail do cliente
-                <input id="clientEmail" type="email" required>
+                E-mail
+                <input id="clientEmail" type="email">
               </label>
               <label>
-                Telefone do cliente
-                <input id="clientPhone" type="tel" placeholder="Ex: (11) 99999-9999">
+                Telefone
+                <input id="clientPhone" type="tel" placeholder="Ex: (11) 99999-9999" required>
               </label>
               <label>
-                Endereço do cliente
-                <input id="clientAddress" type="text" placeholder="Rua, número, bairro, cidade">
+                CEP
+                <input id="clientZip" type="text" inputmode="numeric" placeholder="Ex: 01001-000" required>
+              </label>
+              <p id="zipMessage" class="message full"></p>
+              <label>
+                Endereço
+                <input id="clientStreet" type="text" placeholder="Rua/Avenida" required>
               </label>
               <label>
-                Veículo
-                <input id="vehicle" type="text" placeholder="Ex: Corolla 2018" required>
+                Número
+                <input id="clientNumber" type="text" required>
               </label>
               <label>
-                Placa
-                <input id="plate" type="text" maxlength="8" required>
+                Bairro
+                <input id="clientDistrict" type="text" required>
               </label>
+              <label>
+                Estado
+                <input id="clientState" type="text" maxlength="2" placeholder="Ex: SP" required>
+              </label>
+              <section class="line-items vehicle-section full">
+                <div class="line-items-head">
+                  <div>
+                    <h3>Informações do Veículo</h3>
+                  </div>
+                </div>
+                <div class="vehicle-grid">
+                  <label>
+                    Marca
+                    <input id="vehicleBrand" type="text" required>
+                  </label>
+                  <label>
+                    Modelo
+                    <input id="vehicleModel" type="text" required>
+                  </label>
+                  <label>
+                    Ano
+                    <input id="vehicleYear" type="number" min="1900" max="2100" step="1" required>
+                  </label>
+                  <label>
+                    Placa
+                    <input id="plate" type="text" maxlength="7" pattern="[A-Za-z]{3}[0-9][A-Za-z0-9][0-9]{2}" placeholder="ABC1D23 ou ABC1234" autocapitalize="characters" required>
+                  </label>
+                  <label>
+                    Cor
+                    <input id="vehicleColor" type="text">
+                  </label>
+                  <label>
+                    KM
+                    <input id="vehicleKm" type="text" inputmode="numeric" placeholder="Ex: 310.635" pattern="[0-9]+\.[0-9]{3}" required>
+                  </label>
+                </div>
+              </section>
               <section class="line-items full">
                 <div class="line-items-head">
                   <div>
@@ -230,7 +292,7 @@
               <button type="submit" id="saveBudgetButton" class="primary full">Salvar como pendente</button>
             </form>
 
-            <div class="panel">
+            <div id="budgetListPanel" class="panel">
               <div class="panel-head">
                 <h2 id="budgetListTitle">Orçamentos cadastrados</h2>
                 <select id="statusFilter">
@@ -398,6 +460,9 @@
           <button type="button" id="modalEmailButton" class="action">Enviar e-mail</button>
           <button type="button" id="modalPrintButton" class="action">Imprimir</button>
           <button type="button" id="modalEditButton" class="action success">Editar orçamento</button>
+          <button type="button" id="modalApproveButton" class="action success hidden">Aprovar orçamento</button>
+          <button type="button" id="modalRejectButton" class="action danger hidden">Reprovar orçamento</button>
+          <button type="button" id="modalDeleteButton" class="action danger hidden">Excluir orçamento</button>
         </div>
       </article>
     </section>

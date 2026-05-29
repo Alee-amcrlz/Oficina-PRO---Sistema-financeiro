@@ -1,5 +1,4 @@
-const DB_NAME = "oficina_pro_db";
-const DB_VERSION = 1;
+const API_BASE = "/api";
 const STATUS = {
   pending: "pendente",
   approved: "aprovado",
@@ -22,11 +21,12 @@ const PERMISSIONS = {
   budgets_view: "Visualizar atendimento",
   budgets_manage: "Criar e editar orçamentos",
   budgets_approve: "Aprovar e reprovar orçamentos",
+  budgets_delete: "Excluir orçamentos",
   billing_view: "Visualizar financeiro",
   billing_edit: "Editar orçamentos pelo financeiro"
 };
 const DEFAULT_PERMISSIONS = {
-  administrador: ["dashboard_view", "budgets_view", "budgets_manage", "budgets_approve", "billing_view", "billing_edit"],
+  administrador: ["dashboard_view", "budgets_view", "budgets_manage", "budgets_approve", "budgets_delete", "billing_view", "billing_edit"],
   financeiro: ["dashboard_view", "billing_view"],
   analista: ["dashboard_view", "budgets_view", "budgets_manage"]
 };
@@ -35,16 +35,17 @@ const FEATURE_ALIASES = {
   budgets: "budgets_view",
   billing: "billing_view"
 };
-const ACCESS_LEVELS_KEY = "oficina_access_levels";
-const PERMISSIONS_KEY = "oficina_access_permissions";
+const REMEMBER_LOGIN_KEY = "oficina_remember_login";
 
-let db;
 let currentUser = null;
 let budgets = [];
 let users = [];
+let accessLevelsState = { ...DEFAULT_ACCESS_LEVELS };
+let permissionsState = structuredClone(DEFAULT_PERMISSIONS);
 let editingBudgetId = null;
 let selectedBudgetId = null;
 let compactBudgetList = false;
+let lastZipLookup = "";
 
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -55,39 +56,20 @@ const dateFormat = new Intl.DateTimeFormat("pt-BR");
 
 const $ = (selector) => document.querySelector(selector);
 
-function openDatabase() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const database = request.result;
-
-      if (!database.objectStoreNames.contains("users")) {
-        const users = database.createObjectStore("users", { keyPath: "id", autoIncrement: true });
-        users.createIndex("email", "email", { unique: true });
-      }
-
-      if (!database.objectStoreNames.contains("budgets")) {
-        const budgetStore = database.createObjectStore("budgets", { keyPath: "id", autoIncrement: true });
-        budgetStore.createIndex("userId", "userId");
-        budgetStore.createIndex("status", "status");
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+async function api(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
   });
-}
 
-function store(name, mode = "readonly") {
-  return db.transaction(name, mode).objectStore(name);
-}
-
-function requestToPromise(request) {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || "Erro ao acessar o banco de dados local.");
+  }
+  return data;
 }
 
 async function hashPassword(password) {
@@ -106,26 +88,31 @@ async function hashPassword(password) {
 }
 
 async function createUser(user) {
-  return requestToPromise(store("users", "readwrite").add(user));
+  return api("/users", {
+    method: "POST",
+    body: JSON.stringify(user)
+  });
 }
 
 async function updateUser(user) {
-  return requestToPromise(store("users", "readwrite").put(user));
+  return api(`/users/${user.id}`, {
+    method: "PUT",
+    body: JSON.stringify(user)
+  });
 }
 
 async function deleteUser(id) {
-  return requestToPromise(store("users", "readwrite").delete(Number(id)));
+  return api(`/users/${Number(id)}`, { method: "DELETE" });
 }
 
 async function loadAllUsers() {
-  users = await requestToPromise(store("users").getAll());
+  users = await api("/users");
   users.sort((a, b) => String(a.name).localeCompare(String(b.name), "pt-BR"));
   renderUsersTable();
 }
 
 async function findUserByEmail(email) {
-  const index = store("users").index("email");
-  return requestToPromise(index.get(String(email).toLowerCase().trim()));
+  return api(`/users/by-email?email=${encodeURIComponent(String(email).toLowerCase().trim())}`);
 }
 
 async function ensureMasterUser() {
@@ -152,15 +139,25 @@ async function ensureMasterUser() {
 }
 
 async function saveBudget(budget) {
-  return requestToPromise(store("budgets", "readwrite").add(budget));
+  return api("/budgets", {
+    method: "POST",
+    body: JSON.stringify(budget)
+  });
 }
 
 async function updateBudget(budget) {
-  return requestToPromise(store("budgets", "readwrite").put(budget));
+  return api(`/budgets/${budget.id}`, {
+    method: "PUT",
+    body: JSON.stringify(budget)
+  });
+}
+
+async function deleteBudget(id) {
+  return api(`/budgets/${Number(id)}`, { method: "DELETE" });
 }
 
 async function loadBudgets() {
-  const all = await requestToPromise(store("budgets").getAll());
+  const all = await api("/budgets");
   const visibleBudgets = canAccess("billing_view")
     ? all
     : all.filter((budget) => budget.userId === currentUser.id);
@@ -170,9 +167,41 @@ async function loadBudgets() {
   renderAll();
 }
 
+async function loadSettings() {
+  const [savedAccessLevels, savedPermissions] = await Promise.all([
+    api("/settings/accessLevels"),
+    api("/settings/permissions")
+  ]);
+
+  accessLevelsState = { ...DEFAULT_ACCESS_LEVELS, ...(savedAccessLevels || {}) };
+  permissionsState = { ...DEFAULT_PERMISSIONS, ...(savedPermissions || {}) };
+}
+
 function setMessage(element, text, isSuccess = false) {
   element.textContent = text;
   element.style.color = isSuccess ? "var(--success)" : "var(--danger)";
+}
+
+function loadRememberedLogin() {
+  try {
+    const remembered = JSON.parse(localStorage.getItem(REMEMBER_LOGIN_KEY));
+    if (!remembered?.email || !remembered?.password) return;
+
+    $("#loginEmail").value = remembered.email;
+    $("#loginPassword").value = remembered.password;
+    $("#rememberLogin").checked = true;
+  } catch {
+    localStorage.removeItem(REMEMBER_LOGIN_KEY);
+  }
+}
+
+function updateRememberedLogin(email, password) {
+  if (!$("#rememberLogin").checked) {
+    localStorage.removeItem(REMEMBER_LOGIN_KEY);
+    return;
+  }
+
+  localStorage.setItem(REMEMBER_LOGIN_KEY, JSON.stringify({ email, password }));
 }
 
 function showApp() {
@@ -250,16 +279,15 @@ function isMasterUser() {
 }
 
 function accessLevelsConfig() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(ACCESS_LEVELS_KEY));
-    return { ...DEFAULT_ACCESS_LEVELS, ...(saved || {}) };
-  } catch {
-    return DEFAULT_ACCESS_LEVELS;
-  }
+  return { ...DEFAULT_ACCESS_LEVELS, ...(accessLevelsState || {}) };
 }
 
 function saveAccessLevelsConfig(config) {
-  localStorage.setItem(ACCESS_LEVELS_KEY, JSON.stringify(config));
+  accessLevelsState = { ...config };
+  api("/settings/accessLevels", {
+    method: "PUT",
+    body: JSON.stringify(accessLevelsState)
+  }).catch((error) => console.error(error));
 }
 
 function normalizePermissionList(list = []) {
@@ -283,21 +311,24 @@ function normalizePermissionList(list = []) {
 }
 
 function permissionsConfig() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(PERMISSIONS_KEY));
-    const accessLevels = accessLevelsConfig();
-    const config = {};
-    Object.keys(accessLevels).forEach((level) => {
-      config[level] = normalizePermissionList(saved?.[level] || DEFAULT_PERMISSIONS[level] || []);
-    });
-    return config;
-  } catch {
-    return DEFAULT_PERMISSIONS;
-  }
+  const accessLevels = accessLevelsConfig();
+  const saved = permissionsState || {};
+  const config = {};
+  Object.keys(accessLevels).forEach((level) => {
+    config[level] = normalizePermissionList(saved?.[level] || DEFAULT_PERMISSIONS[level] || []);
+    if (level === "administrador" && !config[level].includes("budgets_delete")) {
+      config[level].push("budgets_delete");
+    }
+  });
+  return config;
 }
 
 function savePermissionsConfig(config) {
-  localStorage.setItem(PERMISSIONS_KEY, JSON.stringify(config));
+  permissionsState = { ...config };
+  api("/settings/permissions", {
+    method: "PUT",
+    body: JSON.stringify(permissionsState)
+  }).catch((error) => console.error(error));
 }
 
 function canAccess(feature) {
@@ -306,6 +337,15 @@ function canAccess(feature) {
   if (currentUser.role === "admin") return true;
   const normalizedFeature = FEATURE_ALIASES[feature] || feature;
   return permissionsConfig()[currentAccessLevel()]?.includes(normalizedFeature) || false;
+}
+
+function canApproveBudget(budget) {
+  if (!budget || budget.status !== STATUS.pending) return false;
+  return canAccess("budgets_approve") || (canAccess("budgets_manage") && budget.userId === currentUser?.id);
+}
+
+function canDeleteBudget(budget) {
+  return Boolean(budget) && canAccess("budgets_delete");
 }
 
 function firstAllowedView() {
@@ -381,6 +421,107 @@ function totalBudget(budget) {
   return partsTotal(budget) + laborTotal(budget);
 }
 
+function isDateInCurrentMonth(value) {
+  const date = new Date(value);
+  const now = new Date();
+
+  return !Number.isNaN(date.getTime())
+    && date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth();
+}
+
+function budgetBillingDate(budget) {
+  return budget.approvedAt || budget.createdAt;
+}
+
+function budgetVehicleTitle(budget) {
+  return [budget.vehicleBrand, budget.vehicleModel].filter(Boolean).join(" ") || budget.vehicle || "Não informado";
+}
+
+function budgetAddressText(budget) {
+  const address = [budget.clientStreet || budget.clientAddress, budget.clientNumber].filter(Boolean).join(", ");
+  return [
+    address,
+    budget.clientDistrict && `Bairro ${budget.clientDistrict}`,
+    budget.clientState,
+    budget.clientZip && `CEP ${budget.clientZip}`
+  ].filter(Boolean).join(" - ") || "Não informado";
+}
+
+function formatZip(value) {
+  const digits = String(value).replace(/\D/g, "").slice(0, 8);
+  return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+}
+
+function formatVehicleKm(value) {
+  const sanitized = sanitizeVehicleKmInput(value);
+  if (sanitized.includes(".")) return sanitized;
+
+  const digits = sanitized.replace(/\D/g, "");
+  if (digits.length <= 3) return digits;
+
+  return `${digits.slice(0, -3)}.${digits.slice(-3)}`;
+}
+
+function sanitizeVehicleKmInput(value) {
+  const cleaned = String(value).replace(/[^\d.]/g, "");
+  const [integerPart, ...decimalParts] = cleaned.split(".");
+  if (!cleaned.includes(".")) return integerPart;
+
+  const decimalPart = decimalParts.join("").replace(/\D/g, "").slice(0, 3);
+  return `${integerPart}.${decimalPart}`;
+}
+
+function isValidVehicleKm(value) {
+  return /^[0-9]+\.[0-9]{3}$/.test(String(value).trim());
+}
+
+function isValidBrazilianPlate(plate) {
+  return /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(String(plate).toUpperCase().trim());
+}
+
+function setAddressLookupState(message = "", isError = false) {
+  const messageElement = $("#zipMessage");
+  if (!messageElement) return;
+
+  setMessage(messageElement, message, !isError);
+}
+
+async function lookupAddressByZip() {
+  const zip = $("#clientZip").value.replace(/\D/g, "");
+  if (zip.length !== 8) {
+    setAddressLookupState("");
+    return;
+  }
+  if (zip === lastZipLookup) return;
+
+  lastZipLookup = zip;
+  setAddressLookupState("Buscando endereço...", false);
+
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${zip}/json/`);
+    if (!response.ok) throw new Error("zip_lookup_failed");
+
+    const data = await response.json();
+    if (data.erro) {
+      setAddressLookupState("CEP não encontrado. Preencha o endereço manualmente.", true);
+      return;
+    }
+
+    $("#clientZip").value = data.cep || formatZip(zip);
+    $("#clientStreet").value = data.logradouro || "";
+    $("#clientDistrict").value = data.bairro || "";
+    $("#clientState").value = data.uf || "";
+    setAddressLookupState("Endereço preenchido pelo CEP.", false);
+
+    if (data.logradouro) {
+      $("#clientNumber").focus();
+    }
+  } catch {
+    setAddressLookupState("Não foi possível consultar o CEP agora. Preencha manualmente.", true);
+  }
+}
+
 function renderItemsSummary(budget) {
   const parts = normalizeParts(budget);
   const labor = normalizeLabor(budget);
@@ -421,11 +562,16 @@ function renderBudgetDetail(budget) {
 
   return `
     <div class="detail-grid">
-      <div class="detail-box"><span>Cliente</span><strong>${escapeHtml(budget.clientName)}</strong></div>
-      <div class="detail-box"><span>E-mail</span><strong>${escapeHtml(budget.clientEmail)}</strong></div>
+      <div class="detail-box"><span>Nome Completo</span><strong>${escapeHtml(budget.clientName)}</strong></div>
+      <div class="detail-box"><span>E-mail</span><strong>${escapeHtml(budget.clientEmail || "Não informado")}</strong></div>
       <div class="detail-box"><span>Telefone</span><strong>${escapeHtml(budget.clientPhone || "Não informado")}</strong></div>
-      <div class="detail-box"><span>Endereço</span><strong>${escapeHtml(budget.clientAddress || "Não informado")}</strong></div>
-      <div class="detail-box"><span>Veículo</span><strong>${escapeHtml(budget.vehicle)} - ${escapeHtml(budget.plate)}</strong></div>
+      <div class="detail-box"><span>Endereço</span><strong>${escapeHtml(budgetAddressText(budget))}</strong></div>
+      <div class="detail-box"><span>Marca</span><strong>${escapeHtml(budget.vehicleBrand || "Não informado")}</strong></div>
+      <div class="detail-box"><span>Modelo</span><strong>${escapeHtml(budget.vehicleModel || budget.vehicle || "Não informado")}</strong></div>
+      <div class="detail-box"><span>Ano</span><strong>${escapeHtml(budget.vehicleYear || "Não informado")}</strong></div>
+      <div class="detail-box"><span>Placa</span><strong>${escapeHtml(budget.plate || "Não informado")}</strong></div>
+      <div class="detail-box"><span>Cor</span><strong>${escapeHtml(budget.vehicleColor || "Não informado")}</strong></div>
+      <div class="detail-box"><span>KM</span><strong>${escapeHtml(budget.vehicleKm || "Não informado")}</strong></div>
       <div class="detail-box"><span>Status</span><strong><span class="badge ${budget.status}">${budget.status}</span></strong></div>
       <div class="detail-box"><span>Total em peças</span><strong>${currency.format(partsTotal(budget))}</strong></div>
       <div class="detail-box"><span>Total em mão de obra</span><strong>${currency.format(laborTotal(budget))}</strong></div>
@@ -470,15 +616,47 @@ function renderAll() {
 }
 
 function renderMetrics() {
-  $("#pendingCount").textContent = budgets.filter((budget) => budget.status === STATUS.pending).length;
-  $("#approvedCount").textContent = budgets.filter((budget) => budget.status === STATUS.approved).length;
-  $("#rejectedCount").textContent = budgets.filter((budget) => budget.status === STATUS.rejected).length;
+  const pendingBudgets = budgets.filter((budget) => budget.status === STATUS.pending);
+  const approvedBudgets = budgets.filter((budget) => budget.status === STATUS.approved);
+  const rejectedBudgets = budgets.filter((budget) => budget.status === STATUS.rejected);
 
-  const revenue = budgets
-    .filter((budget) => budget.status === STATUS.approved)
+  $("#pendingCount").textContent = pendingBudgets.length;
+  $("#approvedCount").textContent = approvedBudgets.length;
+  $("#rejectedCount").textContent = rejectedBudgets.length;
+
+  const revenue = approvedBudgets
+    .filter((budget) => isDateInCurrentMonth(budgetBillingDate(budget)))
+    .reduce((sum, budget) => sum + totalBudget(budget), 0);
+  const forecast = [...approvedBudgets, ...pendingBudgets]
     .reduce((sum, budget) => sum + totalBudget(budget), 0);
 
   $("#revenueTotal").textContent = currency.format(revenue);
+  $("#forecastTotal").textContent = currency.format(forecast);
+  renderDashboardChart(revenue, forecast);
+}
+
+function renderDashboardChart(revenue, forecast) {
+  const maximum = Math.max(revenue, forecast, 1);
+  const items = [
+    { label: "Faturamento mês", value: revenue, className: "current" },
+    { label: "Faturamento previsto", value: forecast, className: "forecast" }
+  ];
+
+  $("#dashboardChart").innerHTML = items.map((item) => {
+    const width = (item.value / maximum) * 100;
+
+    return `
+      <div class="chart-row">
+        <div class="chart-label">
+          <span>${item.label}</span>
+          <strong>${currency.format(item.value)}</strong>
+        </div>
+        <div class="chart-track" aria-label="${item.label}: ${currency.format(item.value)}">
+          <span class="chart-bar ${item.className}" style="width: ${width}%"></span>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
 function budgetRows(items) {
@@ -489,7 +667,7 @@ function budgetRows(items) {
   const rows = items.map((budget) => `
     <tr>
       <td>${escapeHtml(budget.clientName)}</td>
-      <td>${escapeHtml(budget.vehicle)}<br><span class="muted">${escapeHtml(budget.plate)}</span></td>
+      <td>${escapeHtml(budgetVehicleTitle(budget))}<br><span class="muted">${escapeHtml(budget.plate)}</span></td>
       <td><span class="badge ${budget.status}">${budget.status}</span></td>
       <td>${currency.format(totalBudget(budget))}</td>
       <td>${dateFormat.format(new Date(budget.createdAt))}</td>
@@ -523,10 +701,13 @@ function renderBudgetList() {
     .filter((budget) => {
       const searchable = [
         budget.clientName,
-        budget.vehicle,
+        budgetVehicleTitle(budget),
         budget.plate,
         budget.clientEmail,
-        budget.clientPhone
+        budget.clientPhone,
+        budget.clientZip,
+        budget.clientDistrict,
+        budget.clientState
       ].join(" ").toLowerCase();
       return !search || searchable.includes(search);
     });
@@ -543,10 +724,21 @@ function renderBudgetList() {
         <td>
           <button class="table-link" data-action="view" data-id="${budget.id}">${escapeHtml(budget.clientName)}</button>
         </td>
-        <td>${escapeHtml(budget.vehicle)}<br><span class="muted">${escapeHtml(budget.plate)}</span></td>
+        <td>${escapeHtml(budgetVehicleTitle(budget))}<br><span class="muted">${escapeHtml(budget.plate)}</span></td>
         <td><span class="badge ${budget.status}">${budget.status}</span></td>
         <td>${currency.format(totalBudget(budget))}</td>
         <td>${dateFormat.format(new Date(budget.createdAt))}</td>
+        <td>
+          <div class="actions compact-actions">
+            <button class="action" data-action="view" data-id="${budget.id}">Abrir</button>
+            ${canAccess("budgets_manage") ? `<button class="action" data-action="edit" data-id="${budget.id}">Editar</button>` : ""}
+            ${canApproveBudget(budget) ? `
+              <button class="action success" data-action="approve" data-id="${budget.id}">Aprovar</button>
+              <button class="action danger" data-action="reject" data-id="${budget.id}">Reprovar</button>
+            ` : ""}
+            ${canDeleteBudget(budget) ? `<button class="action danger" data-action="delete" data-id="${budget.id}">Excluir</button>` : ""}
+          </div>
+        </td>
       </tr>
     `).join("");
 
@@ -560,6 +752,7 @@ function renderBudgetList() {
               <th>Status</th>
               <th>Valor</th>
               <th>Data</th>
+              <th>Ações</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -575,12 +768,12 @@ function renderBudgetList() {
       <header>
         <div>
           <h3>${escapeHtml(budget.clientName)}</h3>
-          <span class="muted">${escapeHtml(budget.vehicle)} - ${escapeHtml(budget.plate)}</span>
+          <span class="muted">${escapeHtml(budgetVehicleTitle(budget))} - ${escapeHtml(budget.plate)}</span>
         </div>
         <span class="badge ${budget.status}">${budget.status}</span>
       </header>
       <div class="budget-meta">
-        <span>${escapeHtml(budget.clientEmail)}</span>
+        ${budget.clientEmail ? `<span>${escapeHtml(budget.clientEmail)}</span>` : ""}
         ${budget.clientPhone ? `<span>${escapeHtml(budget.clientPhone)}</span>` : ""}
         <span>${dateFormat.format(new Date(budget.createdAt))}</span>
         <strong>${currency.format(totalBudget(budget))}</strong>
@@ -591,10 +784,11 @@ function renderBudgetList() {
         ${canAccess("budgets_manage") ? `<button class="action" data-action="edit" data-id="${budget.id}">Editar</button>` : ""}
         <button class="action" data-action="email" data-id="${budget.id}">Enviar e-mail</button>
         <button class="action" data-action="print" data-id="${budget.id}">Imprimir</button>
-        ${budget.status === STATUS.pending && canAccess("budgets_approve") ? `
+        ${canApproveBudget(budget) ? `
           <button class="action success" data-action="approve" data-id="${budget.id}">Aprovar</button>
           <button class="action danger" data-action="reject" data-id="${budget.id}">Reprovar</button>
         ` : ""}
+        ${canDeleteBudget(budget) ? `<button class="action danger" data-action="delete" data-id="${budget.id}">Excluir</button>` : ""}
       </div>
     </article>
   `).join("");
@@ -612,14 +806,15 @@ function renderBilling() {
   const rows = approved.map((budget) => `
     <tr>
       <td>${escapeHtml(budget.clientName)}</td>
-      <td>${escapeHtml(budget.vehicle)} - ${escapeHtml(budget.plate)}</td>
+      <td>${escapeHtml(budgetVehicleTitle(budget))} - ${escapeHtml(budget.plate)}</td>
       <td>${currency.format(laborTotal(budget))}</td>
       <td>${currency.format(partsTotal(budget))}</td>
       <td>${currency.format(totalBudget(budget))}</td>
-      <td>${dateFormat.format(new Date(budget.approvedAt || budget.createdAt))}</td>
+      <td>${dateFormat.format(new Date(budgetBillingDate(budget)))}</td>
       <td>
         <button class="action" data-action="view" data-id="${budget.id}">Abrir</button>
         ${canAccess("billing_edit") ? `<button class="action" data-action="edit" data-id="${budget.id}">Editar</button>` : ""}
+        ${canDeleteBudget(budget) ? `<button class="action danger" data-action="delete" data-id="${budget.id}">Excluir</button>` : ""}
       </td>
     </tr>
   `).join("");
@@ -833,17 +1028,25 @@ async function removeUser(id) {
 }
 
 function emailBudget(budget) {
+  if (!budget.clientEmail) {
+    alert("Este orçamento não possui e-mail cadastrado para o cliente.");
+    return;
+  }
+
   const parts = normalizeParts(budget);
   const labor = normalizeLabor(budget);
-  const subject = encodeURIComponent(`Orçamento Oficina Pro - ${budget.vehicle}`);
+  const subject = encodeURIComponent(`Orçamento Oficina Pro - ${budgetVehicleTitle(budget)}`);
   const body = encodeURIComponent([
     `Olá, ${budget.clientName}.`,
     "",
     "Segue o orçamento solicitado:",
-    `Veículo: ${budget.vehicle}`,
+    `Veículo: ${budgetVehicleTitle(budget)}`,
+    budget.vehicleYear ? `Ano: ${budget.vehicleYear}` : "",
     `Placa: ${budget.plate}`,
+    budget.vehicleColor ? `Cor: ${budget.vehicleColor}` : "",
+    budget.vehicleKm ? `KM: ${budget.vehicleKm}` : "",
     budget.clientPhone ? `Telefone: ${budget.clientPhone}` : "",
-    budget.clientAddress ? `Endereço: ${budget.clientAddress}` : "",
+    `Endereço: ${budgetAddressText(budget)}`,
     "",
     "Peças:",
     ...parts.map((part) => `- ${part.quantity}x ${part.description}: ${currency.format(Number(part.quantity) * Number(part.value))}`),
@@ -885,11 +1088,14 @@ function printBudget(budget) {
   `).join("");
 
   template.querySelector("#printContent").innerHTML = `
-    <p><strong>Cliente:</strong> ${escapeHtml(budget.clientName)}</p>
-    <p><strong>E-mail:</strong> ${escapeHtml(budget.clientEmail)}</p>
+    <p><strong>Nome Completo:</strong> ${escapeHtml(budget.clientName)}</p>
+    ${budget.clientEmail ? `<p><strong>E-mail:</strong> ${escapeHtml(budget.clientEmail)}</p>` : ""}
     ${budget.clientPhone ? `<p><strong>Telefone:</strong> ${escapeHtml(budget.clientPhone)}</p>` : ""}
-    ${budget.clientAddress ? `<p><strong>Endereço:</strong> ${escapeHtml(budget.clientAddress)}</p>` : ""}
-    <p><strong>Veículo:</strong> ${escapeHtml(budget.vehicle)} - ${escapeHtml(budget.plate)}</p>
+    <p><strong>Endereço:</strong> ${escapeHtml(budgetAddressText(budget))}</p>
+    <p><strong>Veículo:</strong> ${escapeHtml(budgetVehicleTitle(budget))} - ${escapeHtml(budget.plate)}</p>
+    ${budget.vehicleYear ? `<p><strong>Ano:</strong> ${escapeHtml(budget.vehicleYear)}</p>` : ""}
+    ${budget.vehicleColor ? `<p><strong>Cor:</strong> ${escapeHtml(budget.vehicleColor)}</p>` : ""}
+    ${budget.vehicleKm ? `<p><strong>KM:</strong> ${escapeHtml(budget.vehicleKm)}</p>` : ""}
     <p><strong>Data:</strong> ${dateFormat.format(new Date(budget.createdAt))}</p>
     <p><strong>Status:</strong> ${budget.status}</p>
     <hr>
@@ -934,10 +1140,25 @@ async function changeBudgetStatus(id, status) {
   budget.updatedAt = new Date().toISOString();
   if (status === STATUS.approved) {
     budget.approvedAt = budget.updatedAt;
+  } else {
+    delete budget.approvedAt;
   }
 
   await updateBudget(budget);
   await loadBudgets();
+  closeBudgetModal();
+}
+
+async function removeBudget(id) {
+  const budget = budgets.find((item) => item.id === Number(id));
+  if (!canDeleteBudget(budget)) return;
+
+  const confirmed = confirm(`Excluir o orçamento de ${budget.clientName}? Esta ação não pode ser desfeita.`);
+  if (!confirmed) return;
+
+  await deleteBudget(budget.id);
+  await loadBudgets();
+  closeBudgetModal();
 }
 
 function escapeHtml(value) {
@@ -980,6 +1201,19 @@ function addPartRow(part) {
 function addLaborRow(item) {
   $("#laborRows").appendChild(createLaborRow(item));
   updateBudgetPreview();
+}
+
+function isPartRowComplete(row) {
+  const quantity = Number(row.querySelector(".part-quantity").value || 0);
+  const description = row.querySelector(".part-description").value.trim();
+  const value = Number(row.querySelector(".part-value").value || 0);
+  return quantity > 0 && description && value > 0;
+}
+
+function isLaborRowComplete(row) {
+  const description = row.querySelector(".labor-description").value.trim();
+  const value = Number(row.querySelector(".labor-value").value || 0);
+  return description && value > 0;
 }
 
 function readPartRows() {
@@ -1051,6 +1285,8 @@ function setFormMode(budget = null) {
 
 function clearBudgetForm() {
   $("#budgetForm").reset();
+  setAddressLookupState("");
+  lastZipLookup = "";
   resetBudgetItems();
   setFormMode();
 }
@@ -1059,9 +1295,17 @@ function loadBudgetIntoForm(budget) {
   $("#clientName").value = budget.clientName || "";
   $("#clientEmail").value = budget.clientEmail || "";
   $("#clientPhone").value = budget.clientPhone || "";
-  $("#clientAddress").value = budget.clientAddress || "";
-  $("#vehicle").value = budget.vehicle || "";
+  $("#clientZip").value = budget.clientZip || "";
+  $("#clientStreet").value = budget.clientStreet || budget.clientAddress || "";
+  $("#clientNumber").value = budget.clientNumber || "";
+  $("#clientDistrict").value = budget.clientDistrict || "";
+  $("#clientState").value = budget.clientState || "";
+  $("#vehicleBrand").value = budget.vehicleBrand || "";
+  $("#vehicleModel").value = budget.vehicleModel || budget.vehicle || "";
+  $("#vehicleYear").value = budget.vehicleYear || "";
   $("#plate").value = budget.plate || "";
+  $("#vehicleColor").value = budget.vehicleColor || "";
+  $("#vehicleKm").value = budget.vehicleKm || "";
   $("#notes").value = budget.notes || "";
   $("#partsRows").innerHTML = "";
   $("#laborRows").innerHTML = "";
@@ -1091,6 +1335,9 @@ function openBudgetModal(budget) {
   selectedBudgetId = budget.id;
   $("#budgetModalContent").innerHTML = renderBudgetDetail(budget);
   $("#modalEditButton").classList.toggle("hidden", !(canAccess("budgets_manage") || canAccess("billing_edit")));
+  $("#modalApproveButton").classList.toggle("hidden", !canApproveBudget(budget));
+  $("#modalRejectButton").classList.toggle("hidden", !canApproveBudget(budget));
+  $("#modalDeleteButton").classList.toggle("hidden", !canDeleteBudget(budget));
   $("#budgetModal").classList.remove("hidden");
 }
 
@@ -1110,7 +1357,11 @@ function markParentMenu(feature) {
 }
 
 function suppressClickedSubmenu(sourceElement) {
-  sourceElement?.closest(".nav-group")?.classList.add("suppress-submenu");
+  const group = sourceElement?.closest(".nav-group");
+  if (!group) return;
+
+  group.classList.add("suppress-submenu");
+  sourceElement.blur();
 }
 
 function openBudgetSection(section, sourceElement = null) {
@@ -1134,13 +1385,16 @@ function openBudgetSection(section, sourceElement = null) {
 
   $("#pageTitle").textContent = labels[section] || labels.new;
   $("#budgetListTitle").textContent = listTitles[section] || listTitles.new;
+  const showCreateForm = isNew && canAccess("budgets_manage");
   $("#statusFilter").value = isNew ? "todos" : section;
   $("#budgetSearch").value = "";
   $("#budgetSearchWrap").classList.toggle("hidden", isNew);
   $("#budgetList").classList.toggle("budget-list", isNew);
-  $("#budgetForm").classList.toggle("hidden", !isNew || !canAccess("budgets_manage"));
-  $("#newBudgetButton").classList.toggle("hidden", !isNew || !canAccess("budgets_manage"));
-  $("#budgetLayout").classList.toggle("list-only", !isNew || !canAccess("budgets_manage"));
+  $("#budgetForm").classList.toggle("hidden", !showCreateForm);
+  $("#budgetListPanel").classList.toggle("hidden", showCreateForm);
+  $("#newBudgetButton").classList.toggle("hidden", !showCreateForm);
+  $("#budgetLayout").classList.toggle("list-only", !showCreateForm);
+  $("#budgetLayout").classList.toggle("form-only", showCreateForm);
   renderBudgetList();
   suppressClickedSubmenu(sourceElement);
 }
@@ -1197,8 +1451,10 @@ function bindEvents() {
 
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const user = await findUserByEmail($("#loginEmail").value);
-    const passwordHash = await hashPassword($("#loginPassword").value);
+    const email = $("#loginEmail").value.toLowerCase().trim();
+    const password = $("#loginPassword").value;
+    const user = await findUserByEmail(email);
+    const passwordHash = await hashPassword(password);
 
   if (!user || user.passwordHash !== passwordHash) {
       setMessage($("#loginMessage"), "E-mail ou senha invalidos.");
@@ -1218,6 +1474,7 @@ function bindEvents() {
       role: user.role || "user",
       accessLevel: user.accessLevel || (user.role === "admin" ? "administrador" : "analista")
     };
+    updateRememberedLogin(email, password);
     sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
     showApp();
   });
@@ -1317,7 +1574,7 @@ function bindEvents() {
       return;
     }
 
-    users = await requestToPromise(store("users").getAll());
+    users = await api("/users");
     const usernameExists = users.some((user) => String(user.username || "").toLowerCase() === username);
     if (usernameExists) {
       setMessage($("#userCreateMessage"), "Já existe um usuário com este nome de usuário.");
@@ -1345,6 +1602,49 @@ function bindEvents() {
   $("#budgetForm").addEventListener("input", (event) => {
     if (event.target.matches(".part-quantity, .part-value, .labor-value, .part-description, .labor-description")) {
       updateBudgetPreview();
+    }
+
+    if (event.target.matches("#clientZip")) {
+      const previousValue = event.target.value;
+      event.target.value = formatZip(previousValue);
+      const zip = event.target.value.replace(/\D/g, "");
+      if (zip.length < 8) lastZipLookup = "";
+      if (zip.length === 8) lookupAddressByZip();
+    }
+
+    if (event.target.matches("#vehicleKm")) {
+      event.target.value = sanitizeVehicleKmInput(event.target.value);
+    }
+
+    if (event.target.matches("#plate, #clientState")) {
+      event.target.value = event.target.value.toUpperCase();
+    }
+  });
+
+  $("#plate").addEventListener("blur", () => {
+    $("#plate").value = $("#plate").value.toUpperCase();
+  });
+
+  $("#vehicleKm").addEventListener("blur", () => {
+    $("#vehicleKm").value = formatVehicleKm($("#vehicleKm").value);
+  });
+
+  $("#budgetForm").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.target.tagName === "TEXTAREA") return;
+
+    const partRow = event.target.closest(".part-row");
+    if (partRow && isPartRowComplete(partRow)) {
+      event.preventDefault();
+      addPartRow();
+      document.querySelector("#partsRows .part-row:last-child .part-description").focus();
+      return;
+    }
+
+    const laborRow = event.target.closest(".labor-row");
+    if (laborRow && isLaborRowComplete(laborRow)) {
+      event.preventDefault();
+      addLaborRow();
+      document.querySelector("#laborRows .labor-row:last-child .labor-description").focus();
     }
   });
 
@@ -1382,8 +1682,28 @@ function bindEvents() {
       return;
     }
 
+    const plate = $("#plate").value.trim().toUpperCase();
+    if (!isValidBrazilianPlate(plate)) {
+      alert("Informe uma placa válida no formato Mercosul (ABC1D23) ou antigo (ABC1234).");
+      $("#plate").focus();
+      return;
+    }
+
+    const vehicleKm = formatVehicleKm($("#vehicleKm").value);
+    $("#vehicleKm").value = vehicleKm;
+    if (!isValidVehicleKm(vehicleKm)) {
+      alert("Informe o KM com números e três dígitos após o ponto. Exemplo: 310.635.");
+      $("#vehicleKm").focus();
+      return;
+    }
+
     const partsValue = parts.reduce((sum, part) => sum + (part.quantity * part.value), 0);
     const laborValue = labor.reduce((sum, item) => sum + item.value, 0);
+    const vehicleBrand = $("#vehicleBrand").value.trim();
+    const vehicleModel = $("#vehicleModel").value.trim();
+    const vehicleYear = $("#vehicleYear").value.trim();
+    const clientStreet = $("#clientStreet").value.trim();
+    const clientNumber = $("#clientNumber").value.trim();
 
     const originalBudget = editingBudgetId ? findBudgetById(editingBudgetId) : null;
     const now = new Date().toISOString();
@@ -1393,9 +1713,19 @@ function bindEvents() {
       clientName: $("#clientName").value.trim(),
       clientEmail: $("#clientEmail").value.toLowerCase().trim(),
       clientPhone: $("#clientPhone").value.trim(),
-      clientAddress: $("#clientAddress").value.trim(),
-      vehicle: $("#vehicle").value.trim(),
-      plate: $("#plate").value.trim().toUpperCase(),
+      clientZip: $("#clientZip").value.trim(),
+      clientStreet,
+      clientNumber,
+      clientAddress: [clientStreet, clientNumber].filter(Boolean).join(", "),
+      clientDistrict: $("#clientDistrict").value.trim(),
+      clientState: $("#clientState").value.trim().toUpperCase(),
+      vehicleBrand,
+      vehicleModel,
+      vehicleYear,
+      vehicle: [vehicleBrand, vehicleModel].filter(Boolean).join(" "),
+      plate,
+      vehicleColor: $("#vehicleColor").value.trim(),
+      vehicleKm,
       parts,
       labor,
       description: "",
@@ -1416,6 +1746,7 @@ function bindEvents() {
 
     clearBudgetForm();
     await loadBudgets();
+    openBudgetSection("pendente");
   });
 
   $("#budgetList").addEventListener("click", async (event) => {
@@ -1429,11 +1760,12 @@ function bindEvents() {
     if (button.dataset.action === "edit" && canAccess("budgets_manage")) beginBudgetEdit(budget);
     if (button.dataset.action === "email") emailBudget(budget);
     if (button.dataset.action === "print") printBudget(budget);
-    if (button.dataset.action === "approve" && canAccess("budgets_approve")) await changeBudgetStatus(button.dataset.id, STATUS.approved);
-    if (button.dataset.action === "reject" && canAccess("budgets_approve")) await changeBudgetStatus(button.dataset.id, STATUS.rejected);
+    if (button.dataset.action === "approve" && canApproveBudget(budget)) await changeBudgetStatus(button.dataset.id, STATUS.approved);
+    if (button.dataset.action === "reject" && canApproveBudget(budget)) await changeBudgetStatus(button.dataset.id, STATUS.rejected);
+    if (button.dataset.action === "delete" && canDeleteBudget(budget)) await removeBudget(button.dataset.id);
   });
 
-  $("#billingTable").addEventListener("click", (event) => {
+  $("#billingTable").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
 
@@ -1442,6 +1774,7 @@ function bindEvents() {
 
     if (button.dataset.action === "view") openBudgetModal(budget);
     if (button.dataset.action === "edit" && canAccess("billing_edit")) beginBudgetEdit(budget);
+    if (button.dataset.action === "delete" && canDeleteBudget(budget)) await removeBudget(button.dataset.id);
   });
 
   $("#closeBudgetModal").addEventListener("click", closeBudgetModal);
@@ -1460,11 +1793,25 @@ function bindEvents() {
     const budget = selectedBudget();
     if (budget && (canAccess("budgets_manage") || canAccess("billing_edit"))) beginBudgetEdit(budget);
   });
+  $("#modalApproveButton").addEventListener("click", async () => {
+    const budget = selectedBudget();
+    if (canApproveBudget(budget)) await changeBudgetStatus(budget.id, STATUS.approved);
+  });
+  $("#modalRejectButton").addEventListener("click", async () => {
+    const budget = selectedBudget();
+    if (canApproveBudget(budget)) await changeBudgetStatus(budget.id, STATUS.rejected);
+  });
+  $("#modalDeleteButton").addEventListener("click", async () => {
+    const budget = selectedBudget();
+    if (canDeleteBudget(budget)) await removeBudget(budget.id);
+  });
 }
 
 async function init() {
-  db = await openDatabase();
+  await api("/health");
+  await loadSettings();
   await ensureMasterUser();
+  loadRememberedLogin();
   bindEvents();
   resetBudgetItems();
 
@@ -1477,5 +1824,5 @@ async function init() {
 
 init().catch((error) => {
   console.error(error);
-  alert("Nao foi possivel iniciar o banco de dados local.");
+  alert("Nao foi possivel iniciar o banco SQLite local. Abra o sistema pelo server.py.");
 });

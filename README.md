@@ -4,13 +4,14 @@ Sistema local para oficina mecânica com login, cadastro de usuários, criação
 
 ## Como usar
 
-1. Abra o arquivo `index.html` no navegador.
-2. Entre com e-mail e senha.
-3. Usuários novos devem ser criados pelo MASTER na aba **Configurações**.
-4. Crie orçamentos em **Atendimento > Orçamentos > Novo orçamento**.
-5. Todo orçamento nasce como **pendente**.
-6. Use **Aprovar** ou **Reprovar** depois do retorno do cliente.
-7. Somente orçamentos aprovados aparecem em **Financeiro > Fluxo de caixa**.
+1. Dê dois cliques em `iniciar_sistema.bat` ou rode `python server.py` nesta pasta.
+2. Abra `http://127.0.0.1:4173/` no navegador.
+3. Entre com e-mail e senha.
+4. Usuários novos devem ser criados pelo MASTER na aba **Configurações**.
+5. Crie orçamentos em **Atendimento > Orçamentos > Novo orçamento**.
+6. Todo orçamento nasce como **pendente**.
+7. Use **Aprovar** ou **Reprovar** depois do retorno do cliente.
+8. Somente orçamentos aprovados aparecem em **Financeiro > Fluxo de caixa**.
 
 ## Usuário administrador
 
@@ -25,7 +26,9 @@ Usuários criados pelo MASTER em **Configurações** recebem a senha padrão inf
 
 ## Banco de dados
 
-Esta primeira versão usa **IndexedDB**, o banco de dados local do navegador, para registrar usuários e orçamentos. Os dados ficam salvos no navegador usado no computador.
+O sistema usa **SQLite local**. Os dados ficam no arquivo `oficina.db`, salvo nesta pasta do projeto.
+
+Esse banco é compartilhado por qualquer navegador que abra `http://127.0.0.1:4173/` neste computador. Para backup, copie o arquivo `oficina.db` com o sistema fechado.
 
 ## Recursos incluidos
 

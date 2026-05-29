@@ -248,6 +248,23 @@ select:focus {
   font-size: 0.9rem;
 }
 
+.remember-login {
+  display: flex;
+  min-height: 24px;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: center;
+  color: #475467;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.remember-login input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 260px 1fr;
@@ -336,19 +353,23 @@ select:focus {
 }
 
 .nav-group.suppress-submenu .side-submenu {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0 !important;
+  pointer-events: none !important;
   transform: translateX(-4px);
-  visibility: hidden;
+  visibility: hidden !important;
 }
 
 .nav-group.suppress-submenu:hover .side-submenu {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0 !important;
+  pointer-events: none !important;
   visibility: hidden;
 }
 
 .side-submenu-button {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
   min-height: 42px;
   border: 0;
   border-radius: 6px;
@@ -360,30 +381,51 @@ select:focus {
 }
 
 .side-submenu-section {
+  position: relative;
   display: grid;
   gap: 6px;
 }
 
-.side-submenu-label {
-  padding: 8px 12px 4px;
-  color: #111827;
+.side-submenu-trigger {
   font-weight: 650;
 }
 
-.side-submenu-label::before {
-  content: "•";
-  margin-right: 8px;
-}
-
 .side-submenu-nested {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 0;
+  z-index: 13;
   display: grid;
   gap: 2px;
-  padding-left: 18px;
+  min-width: 210px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 16px 44px rgba(16, 24, 40, 0.14);
+  padding: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s;
+  visibility: hidden;
 }
 
-.side-submenu-nested .side-submenu-button::before {
-  content: "◦";
-  margin-right: 8px;
+.side-submenu-flyout::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 100%;
+  width: 14px;
+  height: 100%;
+}
+
+.side-submenu-flyout:hover .side-submenu-nested,
+.side-submenu-flyout:focus-within .side-submenu-nested {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 0.08s, 0.08s, 0s;
+  visibility: visible;
 }
 
 .side-submenu-button.active,
@@ -417,7 +459,7 @@ select:focus {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -440,6 +482,60 @@ select:focus {
   font-weight: 650;
 }
 
+.dashboard-panel {
+  margin-bottom: 20px;
+}
+
+.dashboard-chart {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.chart-row {
+  display: grid;
+  gap: 8px;
+}
+
+.chart-label {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.chart-label span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.chart-label strong {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.chart-track {
+  height: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f6;
+}
+
+.chart-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.chart-bar.current {
+  background: var(--success);
+}
+
+.chart-bar.forecast {
+  background: var(--brand);
+}
+
 .panel {
   padding: 18px;
 }
@@ -456,6 +552,10 @@ select:focus {
 }
 
 .split-layout.list-only {
+  grid-template-columns: 1fr;
+}
+
+.split-layout.form-only {
   grid-template-columns: 1fr;
 }
 
@@ -527,6 +627,12 @@ select:focus {
 
 .labor-grid {
   grid-template-columns: minmax(0, 2fr) minmax(96px, 1fr) 40px;
+}
+
+.vehicle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
 }
 
 .line-grid-head {
@@ -853,6 +959,21 @@ tbody tr:hover {
     visibility: visible;
   }
 
+  .side-submenu-nested {
+    position: static;
+    min-width: 0;
+    margin-top: 6px;
+    box-shadow: none;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+    visibility: visible;
+  }
+
+  .side-submenu-flyout::after {
+    display: none;
+  }
+
   .metrics {
     grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
@@ -882,7 +1003,8 @@ tbody tr:hover {
   }
 
   .line-grid,
-  .labor-grid {
+  .labor-grid,
+  .vehicle-grid {
     grid-template-columns: 1fr;
   }
 
