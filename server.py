@@ -67,6 +67,31 @@ PART_COLUMNS = [
     "updatedAt",
 ]
 
+SUPPLIER_COLUMNS = [
+    "cnpj",
+    "corporateName",
+    "tradeName",
+    "phone",
+    "sellerName",
+    "createdAt",
+    "updatedAt",
+]
+
+PAYABLE_COLUMNS = [
+    "description",
+    "entryDate",
+    "competenceDate",
+    "category",
+    "invoiceNumber",
+    "supplierId",
+    "supplierCnpj",
+    "supplierName",
+    "amount",
+    "notes",
+    "createdAt",
+    "updatedAt",
+]
+
 
 def connect():
     conn = sqlite3.connect(DB_PATH)
@@ -153,6 +178,42 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_parts_inventory_code ON parts_inventory(code);
             CREATE INDEX IF NOT EXISTS idx_parts_inventory_description ON parts_inventory(description COLLATE NOCASE);
+
+            CREATE TABLE IF NOT EXISTS suppliers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cnpj TEXT NOT NULL UNIQUE,
+                corporateName TEXT NOT NULL,
+                tradeName TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                sellerName TEXT NOT NULL,
+                createdAt TEXT,
+                updatedAt TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_suppliers_cnpj ON suppliers(cnpj);
+            CREATE INDEX IF NOT EXISTS idx_suppliers_trade_name ON suppliers(tradeName COLLATE NOCASE);
+            CREATE INDEX IF NOT EXISTS idx_suppliers_corporate_name ON suppliers(corporateName COLLATE NOCASE);
+
+            CREATE TABLE IF NOT EXISTS accounts_payable (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description TEXT NOT NULL,
+                entryDate TEXT NOT NULL,
+                competenceDate TEXT NOT NULL,
+                category TEXT NOT NULL,
+                invoiceNumber TEXT,
+                supplierId INTEGER,
+                supplierCnpj TEXT NOT NULL,
+                supplierName TEXT NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,
+                notes TEXT,
+                createdAt TEXT,
+                updatedAt TEXT,
+                FOREIGN KEY (supplierId) REFERENCES suppliers(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_accounts_payable_created ON accounts_payable(createdAt);
+            CREATE INDEX IF NOT EXISTS idx_accounts_payable_due ON accounts_payable(competenceDate);
+            CREATE INDEX IF NOT EXISTS idx_accounts_payable_supplier ON accounts_payable(supplierName COLLATE NOCASE);
             """
         )
         master_hash = hashlib.sha256("Master@123".encode("utf-8")).hexdigest()
@@ -233,6 +294,14 @@ def row_to_part(row):
     return dict(row) if row is not None else None
 
 
+def row_to_supplier(row):
+    return dict(row) if row is not None else None
+
+
+def row_to_payable(row):
+    return dict(row) if row is not None else None
+
+
 def normalize_user(payload):
     data = {key: payload.get(key) for key in USER_COLUMNS}
     data["email"] = str(data.get("email") or "").lower().strip()
@@ -260,6 +329,31 @@ def normalize_part(payload, existing_code=None):
     data["salePrice"] = float(data.get("salePrice") or 0)
     data["stockQuantity"] = int(data.get("stockQuantity") or 0)
     data["serialNumber"] = str(data.get("serialNumber") or "").strip()
+    return data
+
+
+def normalize_supplier(payload):
+    data = {key: payload.get(key) for key in SUPPLIER_COLUMNS}
+    data["cnpj"] = str(data.get("cnpj") or "").strip()
+    data["corporateName"] = str(data.get("corporateName") or "").strip()
+    data["tradeName"] = str(data.get("tradeName") or "").strip()
+    data["phone"] = str(data.get("phone") or "").strip()
+    data["sellerName"] = str(data.get("sellerName") or "").strip()
+    return data
+
+
+def normalize_payable(payload):
+    data = {key: payload.get(key) for key in PAYABLE_COLUMNS}
+    data["description"] = str(data.get("description") or "").strip()
+    data["entryDate"] = str(data.get("entryDate") or "").strip()
+    data["competenceDate"] = str(data.get("competenceDate") or "").strip()
+    data["category"] = str(data.get("category") or "").strip()
+    data["invoiceNumber"] = str(data.get("invoiceNumber") or "").strip()
+    data["supplierId"] = int(data.get("supplierId") or 0) or None
+    data["supplierCnpj"] = str(data.get("supplierCnpj") or "").strip()
+    data["supplierName"] = str(data.get("supplierName") or "").strip()
+    data["amount"] = float(data.get("amount") or 0)
+    data["notes"] = str(data.get("notes") or "").strip()
     return data
 
 
@@ -341,6 +435,26 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json([row_to_part(row) for row in rows])
                 return
 
+            if path == "/api/suppliers":
+                with connect() as conn:
+                    rows = conn.execute(
+                        "SELECT * FROM suppliers ORDER BY tradeName COLLATE NOCASE, corporateName COLLATE NOCASE"
+                    ).fetchall()
+                self.send_json([row_to_supplier(row) for row in rows])
+                return
+
+            if path == "/api/payables":
+                limit = int((query.get("limit") or ["0"])[0] or 0)
+                sql = "SELECT * FROM accounts_payable ORDER BY datetime(createdAt) DESC, id DESC"
+                params = []
+                if limit > 0:
+                    sql += " LIMIT ?"
+                    params.append(limit)
+                with connect() as conn:
+                    rows = conn.execute(sql, params).fetchall()
+                self.send_json([row_to_payable(row) for row in rows])
+                return
+
             if path.startswith("/api/settings/"):
                 key = path.rsplit("/", 1)[-1]
                 with connect() as conn:
@@ -395,6 +509,32 @@ class Handler(SimpleHTTPRequestHandler):
                     )
                     row = conn.execute("SELECT * FROM parts_inventory WHERE id = ?", (cursor.lastrowid,)).fetchone()
                 self.send_json(row_to_part(row), 201)
+                return
+
+            if parsed.path == "/api/suppliers":
+                data = normalize_supplier(payload)
+                columns = ", ".join(SUPPLIER_COLUMNS)
+                marks = ", ".join(["?"] * len(SUPPLIER_COLUMNS))
+                with connect() as conn:
+                    cursor = conn.execute(
+                        f"INSERT INTO suppliers ({columns}) VALUES ({marks})",
+                        [data[column] for column in SUPPLIER_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM suppliers WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                self.send_json(row_to_supplier(row), 201)
+                return
+
+            if parsed.path == "/api/payables":
+                data = normalize_payable(payload)
+                columns = ", ".join(PAYABLE_COLUMNS)
+                marks = ", ".join(["?"] * len(PAYABLE_COLUMNS))
+                with connect() as conn:
+                    cursor = conn.execute(
+                        f"INSERT INTO accounts_payable ({columns}) VALUES ({marks})",
+                        [data[column] for column in PAYABLE_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM accounts_payable WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                self.send_json(row_to_payable(row), 201)
                 return
 
             self.send_json({"error": "Rota não encontrada."}, 404)

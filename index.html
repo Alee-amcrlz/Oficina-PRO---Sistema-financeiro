@@ -60,9 +60,13 @@
 
     <main id="appView" class="app-shell hidden">
       <aside class="sidebar">
-        <div>
-          <p class="eyebrow">Oficina Pro</p>
-          <h2 id="userName">Painel</h2>
+        <div class="sidebar-brand">
+          <img src="assets/oficina-pro-logo-transparent.png" alt="Oficina Pro" class="sidebar-logo">
+          <div>
+            <strong>Oficina Pro</strong>
+            <span>Gestão da oficina</span>
+          </div>
+          <button id="toggleSidebarButton" class="sidebar-toggle" type="button" title="Recolher painel" aria-label="Recolher painel">←</button>
         </div>
         <nav>
           <button class="nav-button active" data-view="dashboardView" data-feature="dashboard">Painel</button>
@@ -117,7 +121,12 @@
             </div>
           </div>
         </nav>
-        <button id="logoutButton" class="secondary">Sair</button>
+        <div class="sidebar-footer">
+          <div id="sidebarClock" class="sidebar-clock">--/--/-- 00:00:00</div>
+          <div id="sidebarGreeting" class="sidebar-greeting">Bom dia</div>
+          <div id="userName" class="sidebar-user">Usuário</div>
+          <button id="logoutButton" class="secondary">Sair</button>
+        </div>
       </aside>
 
       <section class="content">
@@ -126,7 +135,10 @@
             <p class="eyebrow">Gestao da oficina</p>
             <h1 id="pageTitle">Painel</h1>
           </div>
-          <button id="newBudgetButton" class="primary">Novo orçamento</button>
+          <div class="topbar-actions">
+            <button id="toggleThemeButton" class="icon-button" type="button" title="Alternar modo escuro" aria-label="Alternar modo escuro">◐</button>
+            <button id="newBudgetButton" class="primary">Novo orçamento</button>
+          </div>
         </header>
 
         <section id="dashboardView" class="view">
@@ -333,14 +345,96 @@
         </section>
 
         <section id="accountsPayableView" class="view hidden">
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Contas à pagar</h2>
-                <p class="muted">Área reservada para controle de despesas e pagamentos futuros.</p>
+          <div class="payable-layout">
+            <form id="payableForm" class="panel form-grid">
+              <div class="panel-head">
+                <div>
+                  <h2>Contas à pagar</h2>
+                  <p class="muted">Registre compras, fornecedores e vencimentos.</p>
+                </div>
               </div>
-            </div>
-            <p class="empty">Funcionalidade pronta para ser estruturada na próxima etapa.</p>
+              <label class="full">
+                Descrição
+                <input id="payableDescription" type="text" required>
+              </label>
+              <label>
+                Data
+                <input id="payableEntryDate" type="date" required>
+              </label>
+              <label>
+                Competência
+                <input id="payableCompetenceDate" type="date" required>
+              </label>
+              <label>
+                Categoria financeira
+                <select id="payableCategory" required>
+                  <option value="">Selecione</option>
+                  <option value="Administrativo">Administrativo</option>
+                  <option value="Custo indireto">Custo indireto</option>
+                  <option value="Operacional">Operacional</option>
+                  <option value="Estoque">Estoque</option>
+                  <option value="Impostos e taxas">Impostos e taxas</option>
+                  <option value="Outros">Outros</option>
+                </select>
+              </label>
+              <label>
+                Nota fiscal
+                <input id="payableInvoiceNumber" type="text">
+              </label>
+              <label>
+                Valor total
+                <input id="payableAmount" type="number" min="0" step="0.01" required>
+              </label>
+              <section class="line-items full">
+                <div class="line-items-head">
+                  <div>
+                    <h3>Fornecedor</h3>
+                    <p class="muted">Pesquise por nome ou CNPJ. Se for novo, preencha os dados obrigatórios.</p>
+                  </div>
+                </div>
+                <label class="full supplier-search-wrap">
+                  Pesquisar fornecedor
+                  <input id="supplierSearch" type="search" placeholder="Nome fantasia, razão social ou CNPJ" autocomplete="off">
+                  <div id="supplierSuggestions" class="part-suggestions hidden"></div>
+                </label>
+                <div class="supplier-grid">
+                  <label>
+                    CNPJ
+                    <input id="supplierCnpj" type="text" required>
+                  </label>
+                  <label>
+                    Razão Social
+                    <input id="supplierCorporateName" type="text" required>
+                  </label>
+                  <label>
+                    Nome Fantasia
+                    <input id="supplierTradeName" type="text" required>
+                  </label>
+                  <label>
+                    Telefone
+                    <input id="supplierPhone" type="tel" required>
+                  </label>
+                  <label>
+                    Nome do vendedor
+                    <input id="supplierSellerName" type="text" required>
+                  </label>
+                </div>
+              </section>
+              <label class="full">
+                Observações
+                <textarea id="payableNotes" rows="3"></textarea>
+              </label>
+              <button type="submit" class="primary full">Registrar compra</button>
+              <button type="button" id="clearPayableFormButton" class="secondary full">Limpar</button>
+              <p id="payableMessage" class="message full"></p>
+            </form>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Últimas compras cadastradas</h2>
+              </div>
+              <div id="latestPayablesTable" class="table-wrap"></div>
+            </section>
           </div>
         </section>
 
@@ -404,13 +498,14 @@
         <section id="settingsView" class="view hidden">
           <div class="settings-content">
               <section id="usersSettings" class="settings-section">
-                <div class="settings-layout">
+                <div class="inventory-layout">
                   <form id="userCreateForm" class="panel form-grid">
                     <div class="panel-head">
                       <div>
-                        <h2>Criação de Usuário</h2>
-                        <p class="muted">Informe os dados de acesso do novo usuário.</p>
+                        <h2 id="userFormTitle">Criação de Usuário</h2>
+                        <p class="muted">Informe os dados de acesso ou pesquise um usuário para editar.</p>
                       </div>
+                      <button type="button" id="openUserLookupButton" class="secondary">Pesquisar usuários</button>
                     </div>
                     <label>
                       Nome Completo
@@ -429,8 +524,8 @@
                       <input id="newUserPhone" type="tel" placeholder="Ex: (11) 99999-9999">
                     </label>
                     <label>
-                      Senha Padrão
-                      <input id="newUserPassword" type="password" minlength="6" required>
+                      Senha
+                      <input id="newUserPassword" type="password" minlength="6">
                     </label>
                     <label>
                       Nível de Acesso
@@ -440,23 +535,10 @@
                         <option value="analista">Analista</option>
                       </select>
                     </label>
-                    <button type="submit" class="primary full">Criar usuário</button>
+                    <button type="submit" id="saveUserButton" class="primary full">Criar usuário</button>
+                    <button type="button" id="clearUserFormButton" class="secondary full hidden">Limpar seleção</button>
                     <p id="userCreateMessage" class="message full"></p>
                   </form>
-
-                  <section class="panel">
-                    <div class="panel-head">
-                      <div>
-                        <h2>Busca e gerenciamento</h2>
-                        <p class="muted">Localize usuários para bloquear acesso, alterar senha ou excluir cadastro.</p>
-                      </div>
-                    </div>
-                    <label>
-                      Buscar usuário
-                      <input id="userSearch" type="search" placeholder="Nome, usuário, email ou telefone">
-                    </label>
-                    <div id="usersTable" class="table-wrap"></div>
-                  </section>
                 </div>
               </section>
 
@@ -532,6 +614,20 @@
           <input id="partSearch" type="search" placeholder="Código, descrição, marca ou número de série">
         </label>
         <div id="partsInventoryTable" class="table-wrap"></div>
+      </article>
+    </section>
+
+    <section id="userLookupModal" class="modal-backdrop hidden" aria-modal="true" role="dialog">
+      <article class="modal wide-modal">
+        <div class="modal-head">
+          <h2>Pesquisar usuário</h2>
+          <button type="button" id="closeUserLookupModal" class="secondary">Fechar</button>
+        </div>
+        <label>
+          Buscar usuário
+          <input id="userSearch" type="search" placeholder="Nome, usuário, email ou telefone">
+        </label>
+        <div id="usersTable" class="table-wrap"></div>
       </article>
     </section>
 

@@ -39,18 +39,28 @@ const FEATURE_ALIASES = {
   billing: "billing_view"
 };
 const REMEMBER_LOGIN_KEY = "oficina_remember_login";
+const UI_PREFERENCES_KEY = "oficina_ui_preferences";
 
 let currentUser = null;
 let budgets = [];
 let inventoryParts = [];
+let suppliers = [];
+let payables = [];
 let selectedInventoryPartId = null;
+let selectedSupplierId = null;
 let users = [];
+let editingUserId = null;
 let accessLevelsState = { ...DEFAULT_ACCESS_LEVELS };
 let permissionsState = structuredClone(DEFAULT_PERMISSIONS);
 let editingBudgetId = null;
 let selectedBudgetId = null;
 let compactBudgetList = false;
 let lastZipLookup = "";
+let clockTimer = null;
+let uiPreferences = {
+  sidebarCollapsed: false,
+  darkMode: false
+};
 
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -185,6 +195,20 @@ async function deleteInventoryPart(id) {
   return api(`/parts/${Number(id)}`, { method: "DELETE" });
 }
 
+async function createSupplier(supplier) {
+  return api("/suppliers", {
+    method: "POST",
+    body: JSON.stringify(supplier)
+  });
+}
+
+async function createPayable(payable) {
+  return api("/payables", {
+    method: "POST",
+    body: JSON.stringify(payable)
+  });
+}
+
 async function loadBudgets() {
   const all = await api("/budgets");
   const visibleBudgets = canAccess("billing_view")
@@ -199,6 +223,15 @@ async function loadBudgets() {
 async function loadInventoryParts() {
   inventoryParts = await api("/parts");
   renderInventoryPartsTable();
+}
+
+async function loadSuppliers() {
+  suppliers = await api("/suppliers");
+}
+
+async function loadPayables() {
+  payables = await api("/payables?limit=5");
+  renderLatestPayables();
 }
 
 async function loadSettings() {
@@ -238,14 +271,65 @@ function updateRememberedLogin(email, password) {
   localStorage.setItem(REMEMBER_LOGIN_KEY, JSON.stringify({ email, password }));
 }
 
+function loadUiPreferences() {
+  try {
+    uiPreferences = {
+      ...uiPreferences,
+      ...(JSON.parse(localStorage.getItem(UI_PREFERENCES_KEY)) || {})
+    };
+  } catch {
+    localStorage.removeItem(UI_PREFERENCES_KEY);
+  }
+  applyUiPreferences();
+}
+
+function saveUiPreferences() {
+  localStorage.setItem(UI_PREFERENCES_KEY, JSON.stringify(uiPreferences));
+}
+
+function applyUiPreferences() {
+  $("#appView")?.classList.toggle("dark-mode", uiPreferences.darkMode);
+  $("#appView")?.classList.toggle("sidebar-collapsed", uiPreferences.sidebarCollapsed);
+
+  const sidebarButton = $("#toggleSidebarButton");
+  if (sidebarButton) {
+    sidebarButton.title = uiPreferences.sidebarCollapsed ? "Expandir painel" : "Recolher painel";
+    sidebarButton.setAttribute("aria-label", sidebarButton.title);
+    sidebarButton.textContent = uiPreferences.sidebarCollapsed ? "→" : "←";
+  }
+
+  const themeButton = $("#toggleThemeButton");
+  if (themeButton) {
+    themeButton.title = uiPreferences.darkMode ? "Usar modo claro" : "Usar modo escuro";
+    themeButton.setAttribute("aria-label", themeButton.title);
+    themeButton.textContent = uiPreferences.darkMode ? "☀" : "◐";
+  }
+}
+
+function toggleSidebar() {
+  uiPreferences.sidebarCollapsed = !uiPreferences.sidebarCollapsed;
+  applyUiPreferences();
+  saveUiPreferences();
+}
+
+function toggleTheme() {
+  uiPreferences.darkMode = !uiPreferences.darkMode;
+  applyUiPreferences();
+  saveUiPreferences();
+}
+
 function showApp() {
   $("#authView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
   $("#userName").textContent = isMasterUser()
     ? `${currentUser.name} - ADMIN`
     : currentUser.name;
+  applyUiPreferences();
+  startSidebarClock();
   applyNavigationPermissions();
   loadInventoryParts();
+  loadSuppliers();
+  loadPayables();
   loadBudgets();
   if (canAccess("settings")) {
     loadAllUsers();
@@ -259,6 +343,40 @@ function showAuth() {
   sessionStorage.removeItem("oficina_user");
   $("#appView").classList.add("hidden");
   $("#authView").classList.remove("hidden");
+}
+
+function formatSidebarClock(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  const day = pad(date.getDate());
+  const month = pad(date.getMonth() + 1);
+  const year = String(date.getFullYear()).slice(-2);
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const seconds = pad(date.getSeconds());
+  return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+}
+
+function sidebarGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 12) return "Bom dia";
+  if (hour < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
+function startSidebarClock() {
+  const clock = $("#sidebarClock");
+  const greeting = $("#sidebarGreeting");
+  if (!clock) return;
+
+  const tick = () => {
+    const now = new Date();
+    clock.textContent = formatSidebarClock(now);
+    if (greeting) greeting.textContent = sidebarGreeting(now);
+  };
+  tick();
+  if (!clockTimer) {
+    clockTimer = setInterval(tick, 1000);
+  }
 }
 
 function switchView(viewId) {
@@ -897,6 +1015,111 @@ function renderInventoryPartsTable() {
   `;
 }
 
+function supplierDisplayName(supplier) {
+  return supplier?.tradeName || supplier?.corporateName || "Fornecedor";
+}
+
+function renderSupplierSuggestions(term = "") {
+  const container = $("#supplierSuggestions");
+  if (!container) return;
+
+  const search = String(term || "").toLowerCase().trim();
+  if (!search) {
+    container.classList.add("hidden");
+    container.innerHTML = "";
+    return;
+  }
+
+  const matches = suppliers
+    .filter((supplier) => [
+      supplier.cnpj,
+      supplier.corporateName,
+      supplier.tradeName,
+      supplier.phone,
+      supplier.sellerName
+    ].join(" ").toLowerCase().includes(search))
+    .slice(0, 8);
+
+  if (!matches.length) {
+    container.innerHTML = '<p class="empty">Fornecedor novo. Preencha os dados abaixo.</p>';
+    container.classList.remove("hidden");
+    return;
+  }
+
+  container.innerHTML = matches.map((supplier) => `
+    <button type="button" class="part-suggestion" data-supplier-id="${supplier.id}">
+      <strong>${escapeHtml(supplierDisplayName(supplier))}</strong>
+      <span>${escapeHtml(supplier.cnpj)} - ${escapeHtml(supplier.corporateName)}</span>
+    </button>
+  `).join("");
+  container.classList.remove("hidden");
+}
+
+function selectSupplier(supplier) {
+  if (!supplier) return;
+
+  selectedSupplierId = supplier.id;
+  $("#supplierSearch").value = `${supplierDisplayName(supplier)} - ${supplier.cnpj}`;
+  $("#supplierCnpj").value = supplier.cnpj || "";
+  $("#supplierCorporateName").value = supplier.corporateName || "";
+  $("#supplierTradeName").value = supplier.tradeName || "";
+  $("#supplierPhone").value = supplier.phone || "";
+  $("#supplierSellerName").value = supplier.sellerName || "";
+  $("#supplierSuggestions").classList.add("hidden");
+}
+
+function clearSupplierSelection() {
+  selectedSupplierId = null;
+}
+
+function clearPayableForm() {
+  selectedSupplierId = null;
+  $("#payableForm").reset();
+  $("#payableEntryDate").value = new Date().toISOString().slice(0, 10);
+  $("#supplierSuggestions").classList.add("hidden");
+  $("#supplierSuggestions").innerHTML = "";
+  setMessage($("#payableMessage"), "");
+}
+
+function renderLatestPayables() {
+  const container = $("#latestPayablesTable");
+  if (!container) return;
+
+  if (!payables.length) {
+    container.innerHTML = '<p class="empty">Nenhuma compra cadastrada ainda.</p>';
+    return;
+  }
+
+  const rows = payables.slice(0, 5).map((payable) => `
+    <tr>
+      <td>${escapeHtml(payable.description)}</td>
+      <td>${escapeHtml(payable.supplierName)}</td>
+      <td>${escapeHtml(payable.category)}</td>
+      <td>${currency.format(Number(payable.amount || 0))}</td>
+      <td>${dateFormat.format(new Date(`${payable.entryDate}T00:00:00`))}</td>
+      <td>${dateFormat.format(new Date(`${payable.competenceDate}T00:00:00`))}</td>
+      <td>${escapeHtml(payable.invoiceNumber || "Não informado")}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Descrição</th>
+          <th>Fornecedor</th>
+          <th>Categoria</th>
+          <th>Valor</th>
+          <th>Data</th>
+          <th>Competência</th>
+          <th>Nota fiscal</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
 function renderBilling() {
   const approved = budgets.filter((budget) => budget.status === STATUS.approved);
   const total = approved.reduce((sum, budget) => sum + totalBudget(budget), 0);
@@ -981,6 +1204,7 @@ function renderUsersTable() {
       <td>${isMaster ? "MASTER" : "Usuário"}</td>
       <td>
         <div class="actions compact-actions">
+          <button class="action" data-user-action="select" data-id="${user.id}">Selecionar</button>
           <button class="action" data-user-action="password" data-id="${user.id}">Alterar senha</button>
           ${isMaster ? "" : `<button class="action ${user.blocked ? "success" : "danger"}" data-user-action="toggle-block" data-id="${user.id}">${user.blocked ? "Desbloquear" : "Bloquear"}</button>`}
           ${isMaster || isCurrent ? "" : `<button class="action danger" data-user-action="delete" data-id="${user.id}">Excluir</button>`}
@@ -1090,6 +1314,45 @@ function settingsSectionTitle(sectionId = document.querySelector(".side-submenu-
 
 function findUserById(id) {
   return users.find((user) => user.id === Number(id));
+}
+
+function fillUserForm(user) {
+  if (!user) return;
+
+  editingUserId = user.id;
+  $("#userFormTitle").textContent = "Editar usuário";
+  $("#saveUserButton").textContent = "Salvar alterações";
+  $("#clearUserFormButton").classList.remove("hidden");
+  $("#newUserName").value = user.name || "";
+  $("#newUsername").value = user.username || "";
+  $("#newUserEmail").value = user.email || "";
+  $("#newUserPhone").value = user.phone || "";
+  $("#newUserPassword").value = "";
+  $("#newUserPassword").placeholder = "Preencha somente para resetar a senha";
+  $("#newUserAccessLevel").value = user.accessLevel || (user.role === "admin" ? "administrador" : "analista");
+  setMessage($("#userCreateMessage"), "Usuário selecionado para edição.", true);
+  $("#newUserName").focus();
+}
+
+function clearUserForm() {
+  editingUserId = null;
+  $("#userCreateForm").reset();
+  $("#userFormTitle").textContent = "Criação de Usuário";
+  $("#saveUserButton").textContent = "Criar usuário";
+  $("#clearUserFormButton").classList.add("hidden");
+  $("#newUserPassword").placeholder = "";
+  setMessage($("#userCreateMessage"), "");
+}
+
+function openUserLookupModal() {
+  $("#userSearch").value = "";
+  renderUsersTable();
+  $("#userLookupModal").classList.remove("hidden");
+  $("#userSearch").focus();
+}
+
+function closeUserLookupModal() {
+  $("#userLookupModal").classList.add("hidden");
 }
 
 async function toggleUserBlock(id) {
@@ -1766,6 +2029,8 @@ function bindEvents() {
   });
 
   $("#newBudgetButton").addEventListener("click", () => openBudgetSection("new"));
+  $("#toggleSidebarButton").addEventListener("click", toggleSidebar);
+  $("#toggleThemeButton").addEventListener("click", toggleTheme);
   $("#cancelEditButton").addEventListener("click", clearBudgetForm);
   $("#statusFilter").addEventListener("change", renderBudgetList);
   $("#budgetSearch").addEventListener("input", renderBudgetList);
@@ -1788,7 +2053,13 @@ function bindEvents() {
       suppressClickedSubmenu(button);
     });
   });
+  $("#openUserLookupButton").addEventListener("click", openUserLookupModal);
+  $("#clearUserFormButton").addEventListener("click", clearUserForm);
   $("#userSearch").addEventListener("input", renderUsersTable);
+  $("#closeUserLookupModal").addEventListener("click", closeUserLookupModal);
+  $("#userLookupModal").addEventListener("click", (event) => {
+    if (event.target.id === "userLookupModal") closeUserLookupModal();
+  });
   $("#partSearch").addEventListener("input", renderInventoryPartsTable);
   $("#openPartLookupButton").addEventListener("click", openPartLookupModal);
   $("#closePartLookupModal").addEventListener("click", closePartLookupModal);
@@ -1844,6 +2115,62 @@ function bindEvents() {
     setMessage($("#partCreateMessage"), existingPart ? "Entrada registrada no estoque." : "Peça cadastrada com sucesso.", true);
     await loadInventoryParts();
   });
+  $("#supplierSearch").addEventListener("input", (event) => {
+    clearSupplierSelection();
+    renderSupplierSuggestions(event.target.value);
+  });
+  $("#supplierSuggestions").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-supplier-id]");
+    if (!button) return;
+
+    const supplier = suppliers.find((item) => item.id === Number(button.dataset.supplierId));
+    selectSupplier(supplier);
+  });
+  $("#supplierCnpj").addEventListener("input", () => {
+    clearSupplierSelection();
+  });
+  $("#payableForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("billing_view")) return;
+
+    const now = new Date().toISOString();
+    let supplier = selectedSupplierId
+      ? suppliers.find((item) => item.id === Number(selectedSupplierId))
+      : suppliers.find((item) => String(item.cnpj || "").replace(/\D/g, "") === $("#supplierCnpj").value.replace(/\D/g, ""));
+
+    if (!supplier) {
+      supplier = await createSupplier({
+        cnpj: $("#supplierCnpj").value.trim(),
+        corporateName: $("#supplierCorporateName").value.trim(),
+        tradeName: $("#supplierTradeName").value.trim(),
+        phone: $("#supplierPhone").value.trim(),
+        sellerName: $("#supplierSellerName").value.trim(),
+        createdAt: now,
+        updatedAt: now
+      });
+      await loadSuppliers();
+    }
+
+    await createPayable({
+      description: $("#payableDescription").value.trim(),
+      entryDate: $("#payableEntryDate").value,
+      competenceDate: $("#payableCompetenceDate").value,
+      category: $("#payableCategory").value,
+      invoiceNumber: $("#payableInvoiceNumber").value.trim(),
+      supplierId: supplier.id,
+      supplierCnpj: supplier.cnpj,
+      supplierName: supplierDisplayName(supplier),
+      amount: Number($("#payableAmount").value || 0),
+      notes: $("#payableNotes").value.trim(),
+      createdAt: now,
+      updatedAt: now
+    });
+
+    clearPayableForm();
+    setMessage($("#payableMessage"), "Compra cadastrada com sucesso.", true);
+    await loadPayables();
+  });
+  $("#clearPayableFormButton").addEventListener("click", clearPayableForm);
   $("#partsInventoryTable").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-part-action]");
     if (!button || !canAccess("inventory_manage")) return;
@@ -1867,6 +2194,13 @@ function bindEvents() {
   $("#usersTable").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-user-action]");
     if (!button || !canAccess("settings")) return;
+
+    if (button.dataset.userAction === "select") {
+      const user = findUserById(button.dataset.id);
+      fillUserForm(user);
+      closeUserLookupModal();
+      return;
+    }
 
     if (button.dataset.userAction === "toggle-block") await toggleUserBlock(button.dataset.id);
     if (button.dataset.userAction === "password") await changeUserPassword(button.dataset.id);
@@ -1916,34 +2250,66 @@ function bindEvents() {
 
     const email = $("#newUserEmail").value.toLowerCase().trim();
     const username = $("#newUsername").value.trim().toLowerCase();
+    const password = $("#newUserPassword").value;
+    const selectedUser = editingUserId ? findUserById(editingUserId) : null;
+    const isEditingUser = Boolean(editingUserId);
     const existing = await findUserByEmail(email);
-    if (existing) {
+    if (existing && existing.id !== editingUserId) {
       setMessage($("#userCreateMessage"), "Já existe um usuário com este email.");
       return;
     }
 
     users = await api("/users");
-    const usernameExists = users.some((user) => String(user.username || "").toLowerCase() === username);
+    const usernameExists = users.some((user) => user.id !== editingUserId && String(user.username || "").toLowerCase() === username);
     if (usernameExists) {
       setMessage($("#userCreateMessage"), "Já existe um usuário com este nome de usuário.");
       return;
     }
 
+    if (!isEditingUser && password.length < 6) {
+      setMessage($("#userCreateMessage"), "Informe uma senha com pelo menos 6 caracteres.");
+      return;
+    }
+
+    if (isEditingUser && password && password.length < 6) {
+      setMessage($("#userCreateMessage"), "A nova senha precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+
     const accessLevel = $("#newUserAccessLevel").value;
-    await createUser({
+    const payload = {
+      ...(selectedUser || {}),
       name: $("#newUserName").value.trim(),
       username,
       email,
       phone: $("#newUserPhone").value.trim(),
-      passwordHash: await hashPassword($("#newUserPassword").value),
-      role: accessLevel === "administrador" ? "admin-user" : "user",
+      passwordHash: password ? await hashPassword(password) : selectedUser?.passwordHash,
+      role: selectedUser?.role === "admin" ? "admin" : (accessLevel === "administrador" ? "admin-user" : "user"),
       accessLevel,
-      blocked: false,
-      createdAt: new Date().toISOString()
-    });
+      blocked: selectedUser?.blocked || false,
+      createdAt: selectedUser?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
-    $("#userCreateForm").reset();
-    setMessage($("#userCreateMessage"), "Usuário criado com a senha padrão informada.", true);
+    if (isEditingUser) {
+      await updateUser(payload);
+      if (currentUser?.id === payload.id) {
+        currentUser = {
+          id: payload.id,
+          name: payload.name,
+          email: payload.email,
+          phone: payload.phone || "",
+          role: payload.role || "user",
+          accessLevel: payload.accessLevel
+        };
+        sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
+      }
+    } else {
+      await createUser(payload);
+    }
+
+    clearUserForm();
+    setMessage($("#userCreateMessage"), isEditingUser ? "Usuário atualizado com sucesso." : "Usuário criado com sucesso.", true);
     await loadAllUsers();
   });
 
@@ -2190,9 +2556,11 @@ async function init() {
   await api("/health");
   await loadSettings();
   await ensureMasterUser();
+  loadUiPreferences();
   loadRememberedLogin();
   bindEvents();
   resetBudgetItems();
+  clearPayableForm();
 
   const sessionUser = sessionStorage.getItem("oficina_user");
   if (sessionUser) {
