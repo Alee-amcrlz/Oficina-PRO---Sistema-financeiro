@@ -4,13 +4,6 @@ const STATUS = {
   approved: "aprovado",
   rejected: "reprovado"
 };
-const MASTER_USER = {
-  name: "MASTER",
-  email: "master@oficina.local",
-  password: "Master@123",
-  role: "admin",
-  accessLevel: "administrador"
-};
 const DEFAULT_ACCESS_LEVELS = {
   administrador: "Administrador",
   financeiro: "Financeiro",
@@ -36,16 +29,31 @@ const FEATURE_ALIASES = {
   dashboard: "dashboard_view",
   budgets: "budgets_view",
   inventory: "inventory_view",
-  billing: "billing_view"
+  billing: "billing_view",
+  platform: "platform"
+};
+const VIEW_TITLES = {
+  dashboardView: "Painel",
+  platformView: "Painel Master",
+  budgetView: "Atendimento / Orçamentos",
+  billingView: "Financeiro / Fluxo de caixa",
+  accountsPayableView: "Financeiro / Contas à pagar",
+  costTableView: "Financeiro / Tabela de custos",
+  inventoryView: "Gerenciamento de Estoque / Cadastro de peças",
+  settingsView: "Configurações"
 };
 const REMEMBER_LOGIN_KEY = "oficina_remember_login";
 const UI_PREFERENCES_KEY = "oficina_ui_preferences";
+const SESSION_TOKEN_KEY = "oficina_session_token";
 
 let currentUser = null;
 let budgets = [];
 let inventoryParts = [];
 let suppliers = [];
 let payables = [];
+let platformCompanies = [];
+let platformSubscriptions = [];
+let platformPayments = [];
 let selectedInventoryPartId = null;
 let selectedSupplierId = null;
 let users = [];
@@ -72,34 +80,24 @@ const dateFormat = new Intl.DateTimeFormat("pt-BR");
 const $ = (selector) => document.querySelector(selector);
 
 async function api(path, options = {}) {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
   });
 
   const data = await response.json();
+  if (response.status === 401 && !["/auth/login", "/health"].includes(path)) {
+    showAuth();
+  }
   if (!response.ok) {
     throw new Error(data?.error || "Erro ao acessar o banco de dados local.");
   }
   return data;
-}
-
-async function hashPassword(password) {
-  if (!crypto.subtle) {
-    let hash = 2166136261;
-    for (const char of password) {
-      hash ^= char.charCodeAt(0);
-      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    }
-    return `fallback-${(hash >>> 0).toString(16)}`;
-  }
-
-  const bytes = new TextEncoder().encode(password);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function createUser(user) {
@@ -130,32 +128,10 @@ async function findUserByEmail(email) {
   return api(`/users/by-email?email=${encodeURIComponent(String(email).toLowerCase().trim())}`);
 }
 
-async function findUserByLogin(login) {
-  return api(`/users/by-login?login=${encodeURIComponent(String(login).toLowerCase().trim())}`);
-}
-
-async function ensureMasterUser() {
-  const existing = await findUserByEmail(MASTER_USER.email);
-  if (existing) {
-    const normalized = {
-      ...existing,
-      name: existing.name || MASTER_USER.name,
-      username: existing.username || "master",
-      role: "admin",
-      accessLevel: "administrador"
-    };
-    await updateUser(normalized);
-    return;
-  }
-
-  await createUser({
-    name: MASTER_USER.name,
-    username: "master",
-    email: MASTER_USER.email,
-    passwordHash: await hashPassword(MASTER_USER.password),
-    role: MASTER_USER.role,
-    accessLevel: MASTER_USER.accessLevel,
-    createdAt: new Date().toISOString()
+async function loginUser(login, password) {
+  return api("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ login, password })
   });
 }
 
@@ -234,6 +210,16 @@ async function loadPayables() {
   renderLatestPayables();
 }
 
+async function loadPlatformDashboard() {
+  if (!canAccess("platform")) return;
+  [platformCompanies, platformSubscriptions, platformPayments] = await Promise.all([
+    api("/platform/companies"),
+    api("/platform/subscriptions"),
+    api("/platform/payments")
+  ]);
+  renderPlatformDashboard();
+}
+
 async function loadSettings() {
   const [savedAccessLevels, savedPermissions] = await Promise.all([
     api("/settings/accessLevels"),
@@ -249,26 +235,31 @@ function setMessage(element, text, isSuccess = false) {
   element.style.color = isSuccess ? "var(--success)" : "var(--danger)";
 }
 
+function setPageTitle(title = "Painel") {
+  const normalizedTitle = title || "Painel";
+  $("#pageTitle").textContent = normalizedTitle;
+  document.title = `${normalizedTitle.replace(/\s*\/\s*/g, " - ")} | Oficina Pro`;
+}
+
 function loadRememberedLogin() {
   try {
     const remembered = JSON.parse(localStorage.getItem(REMEMBER_LOGIN_KEY));
-    if (!remembered?.email || !remembered?.password) return;
+    if (!remembered?.email) return;
 
     $("#loginEmail").value = remembered.email;
-    $("#loginPassword").value = remembered.password;
     $("#rememberLogin").checked = true;
   } catch {
     localStorage.removeItem(REMEMBER_LOGIN_KEY);
   }
 }
 
-function updateRememberedLogin(email, password) {
+function updateRememberedLogin(email) {
   if (!$("#rememberLogin").checked) {
     localStorage.removeItem(REMEMBER_LOGIN_KEY);
     return;
   }
 
-  localStorage.setItem(REMEMBER_LOGIN_KEY, JSON.stringify({ email, password }));
+  localStorage.setItem(REMEMBER_LOGIN_KEY, JSON.stringify({ email }));
 }
 
 function loadUiPreferences() {
@@ -295,6 +286,7 @@ function applyUiPreferences() {
   if (sidebarButton) {
     sidebarButton.title = uiPreferences.sidebarCollapsed ? "Expandir painel" : "Recolher painel";
     sidebarButton.setAttribute("aria-label", sidebarButton.title);
+    sidebarButton.setAttribute("aria-expanded", String(!uiPreferences.sidebarCollapsed));
     sidebarButton.textContent = uiPreferences.sidebarCollapsed ? "→" : "←";
   }
 
@@ -302,6 +294,7 @@ function applyUiPreferences() {
   if (themeButton) {
     themeButton.title = uiPreferences.darkMode ? "Usar modo claro" : "Usar modo escuro";
     themeButton.setAttribute("aria-label", themeButton.title);
+    themeButton.setAttribute("aria-pressed", String(uiPreferences.darkMode));
     themeButton.textContent = uiPreferences.darkMode ? "☀" : "◐";
   }
 }
@@ -318,7 +311,7 @@ function toggleTheme() {
   saveUiPreferences();
 }
 
-function showApp() {
+async function showApp() {
   $("#authView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
   $("#userName").textContent = isMasterUser()
@@ -326,11 +319,16 @@ function showApp() {
     : currentUser.name;
   applyUiPreferences();
   startSidebarClock();
+  await loadSettings();
   applyNavigationPermissions();
+  setPageTitle("Painel");
   loadInventoryParts();
   loadSuppliers();
   loadPayables();
   loadBudgets();
+  if (canAccess("platform")) {
+    loadPlatformDashboard();
+  }
   if (canAccess("settings")) {
     loadAllUsers();
     renderPermissionMatrix();
@@ -341,8 +339,10 @@ function showApp() {
 function showAuth() {
   currentUser = null;
   sessionStorage.removeItem("oficina_user");
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
   $("#appView").classList.add("hidden");
   $("#authView").classList.remove("hidden");
+  document.title = "Entrar | Oficina Pro";
 }
 
 function formatSidebarClock(date = new Date()) {
@@ -398,16 +398,7 @@ function switchView(viewId) {
     $("#settingsSubmenu")?.classList.remove("is-open");
   }
 
-  const titles = {
-    dashboardView: "Painel",
-    budgetView: "Atendimento / Orçamentos",
-    billingView: "Financeiro / Fluxo de caixa",
-    accountsPayableView: "Financeiro / Contas à pagar",
-    costTableView: "Financeiro / Tabela de custos",
-    inventoryView: "Gerenciamento de Estoque / Cadastro de peças",
-    settingsView: "Configurações"
-  };
-  $("#pageTitle").textContent = viewId === "settingsView" ? settingsSectionTitle() : titles[viewId];
+  setPageTitle(viewId === "settingsView" ? settingsSectionTitle() : VIEW_TITLES[viewId]);
   $("#newBudgetButton").classList.toggle("hidden", viewId !== "budgetView" || !canAccess("budgets_manage"));
   $("#budgetForm").classList.toggle("hidden", viewId === "budgetView" && !canAccess("budgets_manage"));
   $("#budgetLayout")?.classList.toggle("list-only", false);
@@ -419,6 +410,10 @@ function switchView(viewId) {
     if (!document.querySelector(".side-submenu-button.active")) {
       switchSettingsSection("usersSettings");
     }
+  }
+
+  if (viewId === "platformView") {
+    loadPlatformDashboard();
   }
 }
 
@@ -492,6 +487,7 @@ function savePermissionsConfig(config) {
 
 function canAccess(feature) {
   if (!currentUser) return false;
+  if (feature === "platform") return Boolean(currentUser.isPlatformAdmin);
   if (feature === "settings") return currentUser.role === "admin";
   if (currentUser.role === "admin") return true;
   const normalizedFeature = FEATURE_ALIASES[feature] || feature;
@@ -856,6 +852,129 @@ function budgetRows(items) {
 
 function renderRecentBudgets() {
   $("#recentBudgets").innerHTML = budgetRows(budgets.slice(0, 6));
+}
+
+function subscriptionLabel(status) {
+  const labels = {
+    trial: "teste",
+    active: "ativa",
+    past_due: "em atraso",
+    canceled: "cancelada"
+  };
+  return labels[status] || status || "sem status";
+}
+
+function subscriptionBadgeClass(status) {
+  if (status === "active") return "aprovado";
+  if (status === "trial") return "trial";
+  if (status === "past_due") return "pendente";
+  if (status === "canceled") return "reprovado";
+  return "neutral";
+}
+
+function formatOptionalDate(value) {
+  if (!value) return "Não informado";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Não informado";
+  return dateFormat.format(date);
+}
+
+function renderPlatformDashboard() {
+  if (!canAccess("platform")) return;
+
+  const active = platformCompanies.filter((company) => company.subscriptionStatus === "active");
+  const trial = platformCompanies.filter((company) => company.subscriptionStatus === "trial");
+  const alerts = platformCompanies.filter((company) => ["past_due", "canceled"].includes(company.subscriptionStatus));
+  const approvedBudgets = platformCompanies.reduce((sum, company) => sum + Number(company.approvedBudgetCount || 0), 0);
+
+  $("#platformCompanyCount").textContent = platformCompanies.length;
+  $("#platformActiveCount").textContent = active.length;
+  $("#platformTrialCount").textContent = trial.length;
+  $("#platformAlertCount").textContent = alerts.length;
+  $("#platformApprovedBudgetCount").textContent = approvedBudgets;
+  renderPlatformCompaniesTable();
+  renderPlatformPaymentsTable();
+}
+
+function renderPlatformCompaniesTable() {
+  const container = $("#platformCompaniesTable");
+  if (!container) return;
+
+  if (!platformCompanies.length) {
+    container.innerHTML = '<p class="empty">Nenhuma oficina cadastrada.</p>';
+    return;
+  }
+
+  const rows = platformCompanies.map((company) => `
+    <tr>
+      <td>
+        <strong>${escapeHtml(company.name)}</strong><br>
+        <span class="muted">ID ${escapeHtml(company.id)}</span>
+      </td>
+      <td>${escapeHtml(company.plan || "Não definido")}</td>
+      <td><span class="badge ${subscriptionBadgeClass(company.subscriptionStatus)}">${escapeHtml(subscriptionLabel(company.subscriptionStatus))}</span></td>
+      <td>${escapeHtml(company.userCount || 0)}</td>
+      <td>${escapeHtml(company.budgetCount || 0)}</td>
+      <td>${escapeHtml(company.approvedBudgetCount || 0)}</td>
+      <td>${formatOptionalDate(company.currentPeriodEnd || company.trialEndsAt)}</td>
+      <td>${formatOptionalDate(company.lastPaymentAt)}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Oficina</th>
+          <th>Plano</th>
+          <th>Status</th>
+          <th>Usuários</th>
+          <th>Orçamentos</th>
+          <th>Aprovados</th>
+          <th>Próximo marco</th>
+          <th>Último pagamento</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderPlatformPaymentsTable() {
+  const container = $("#platformPaymentsTable");
+  if (!container) return;
+
+  if (!platformPayments.length) {
+    container.innerHTML = '<p class="empty">Nenhum pagamento registrado ainda.</p>';
+    return;
+  }
+
+  const rows = platformPayments.map((payment) => `
+    <tr>
+      <td>${escapeHtml(payment.companyName || "Empresa")}</td>
+      <td>${escapeHtml(payment.subscriptionPlan || "Não definido")}</td>
+      <td>${currency.format(Number(payment.amount || 0))}</td>
+      <td><span class="badge ${subscriptionBadgeClass(payment.status)}">${escapeHtml(payment.status || "pending")}</span></td>
+      <td>${formatOptionalDate(payment.paidAt)}</td>
+      <td>${escapeHtml(payment.provider || "Manual")}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Oficina</th>
+          <th>Plano</th>
+          <th>Valor</th>
+          <th>Status</th>
+          <th>Pago em</th>
+          <th>Provedor</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 function renderBudgetList() {
@@ -1300,7 +1419,7 @@ function switchSettingsSection(sectionId) {
   document.querySelectorAll(".side-submenu-button").forEach((button) => button.classList.remove("active"));
   $(`#${sectionId}`).classList.remove("hidden");
   document.querySelector(`[data-settings-section="${sectionId}"]`).classList.add("active");
-  $("#pageTitle").textContent = settingsSectionTitle(sectionId);
+  setPageTitle(settingsSectionTitle(sectionId));
   $("#settingsSubmenu")?.classList.remove("is-open");
 }
 
@@ -1376,9 +1495,10 @@ async function changeUserPassword(id) {
     return;
   }
 
-  user.passwordHash = await hashPassword(newPassword);
+  user.password = newPassword;
   user.updatedAt = new Date().toISOString();
   await updateUser(user);
+  delete user.password;
   await loadAllUsers();
 }
 
@@ -1903,7 +2023,7 @@ function openBudgetSection(section, sourceElement = null) {
     pendente: "Orçamentos pendentes"
   };
 
-  $("#pageTitle").textContent = labels[section] || labels.new;
+  setPageTitle(labels[section] || labels.new);
   $("#budgetListTitle").textContent = listTitles[section] || listTitles.new;
   const showCreateForm = isNew && canAccess("budgets_manage");
   $("#statusFilter").value = isNew ? "todos" : section;
@@ -1933,7 +2053,7 @@ function openFinanceSection(section, sourceElement = null) {
 function openInventorySection(sourceElement = null) {
   switchView("inventoryView");
   markParentMenu("inventory");
-  $("#pageTitle").textContent = "Gerenciamento de Estoque / Cadastro de peças";
+  setPageTitle("Gerenciamento de Estoque / Cadastro de peças");
   $("#partCreateForm").classList.toggle("hidden", !canAccess("inventory_manage"));
   renderInventoryPartsTable();
   suppressClickedSubmenu(sourceElement);
@@ -1963,7 +2083,7 @@ function bindEvents() {
     const user = {
       name: $("#registerName").value.trim(),
       email,
-      passwordHash: await hashPassword($("#registerPassword").value),
+      password: $("#registerPassword").value,
       role: "user",
       accessLevel: "analista",
       createdAt: new Date().toISOString()
@@ -1982,33 +2102,40 @@ function bindEvents() {
     event.preventDefault();
     const login = $("#loginEmail").value.toLowerCase().trim();
     const password = $("#loginPassword").value;
-    const user = await findUserByLogin(login);
-    const passwordHash = await hashPassword(password);
-
-  if (!user || user.passwordHash !== passwordHash) {
-      setMessage($("#loginMessage"), "Usuário, e-mail ou senha inválidos.");
+    let result = null;
+    try {
+      result = await loginUser(login, password);
+    } catch (error) {
+      setMessage($("#loginMessage"), error.message);
       return;
     }
 
-    if (user.blocked) {
-      setMessage($("#loginMessage"), "Este usuário está bloqueado. Procure o administrador.");
-      return;
-    }
-
+    const user = result.user;
+    sessionStorage.setItem(SESSION_TOKEN_KEY, result.token);
     currentUser = {
       id: user.id,
       name: user.name,
       email: user.email,
       phone: user.phone || "",
       role: user.role || "user",
-      accessLevel: user.accessLevel || (user.role === "admin" ? "administrador" : "analista")
+      accessLevel: user.accessLevel || (user.role === "admin" ? "administrador" : "analista"),
+      isPlatformAdmin: Boolean(user.isPlatformAdmin)
     };
-    updateRememberedLogin(login, password);
+    updateRememberedLogin(login);
     sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
-    showApp();
+    await showApp();
   });
 
-  $("#logoutButton").addEventListener("click", showAuth);
+  $("#logoutButton").addEventListener("click", async () => {
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch {
+      // Mesmo se o servidor já tiver descartado a sessão, a saída local deve continuar.
+    }
+    showAuth();
+  });
+
+  $("#refreshPlatformButton")?.addEventListener("click", loadPlatformDashboard);
 
   document.querySelectorAll(".nav-button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2283,7 +2410,7 @@ function bindEvents() {
       username,
       email,
       phone: $("#newUserPhone").value.trim(),
-      passwordHash: password ? await hashPassword(password) : selectedUser?.passwordHash,
+      ...(password ? { password } : {}),
       role: selectedUser?.role === "admin" ? "admin" : (accessLevel === "administrador" ? "admin-user" : "user"),
       accessLevel,
       blocked: selectedUser?.blocked || false,
@@ -2300,7 +2427,8 @@ function bindEvents() {
           email: payload.email,
           phone: payload.phone || "",
           role: payload.role || "user",
-          accessLevel: payload.accessLevel
+          accessLevel: payload.accessLevel,
+          isPlatformAdmin: Boolean(payload.isPlatformAdmin)
         };
         sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
       }
@@ -2554,8 +2682,6 @@ function bindEvents() {
 
 async function init() {
   await api("/health");
-  await loadSettings();
-  await ensureMasterUser();
   loadUiPreferences();
   loadRememberedLogin();
   bindEvents();
@@ -2563,9 +2689,16 @@ async function init() {
   clearPayableForm();
 
   const sessionUser = sessionStorage.getItem("oficina_user");
-  if (sessionUser) {
+  const sessionToken = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  if (sessionUser && sessionToken) {
     currentUser = JSON.parse(sessionUser);
-    showApp();
+    currentUser.isPlatformAdmin = Boolean(currentUser.isPlatformAdmin);
+    try {
+      await showApp();
+    } catch (error) {
+      console.warn(error);
+      showAuth();
+    }
   }
 }
 

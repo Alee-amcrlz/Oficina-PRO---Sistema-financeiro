@@ -69,6 +69,14 @@ button {
   cursor: pointer;
 }
 
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 2px;
+}
+
 button:disabled,
 input:disabled {
   cursor: not-allowed;
@@ -995,6 +1003,16 @@ input[readonly] {
   color: var(--danger);
 }
 
+.badge.trial {
+  background: #e8f1ff;
+  color: var(--brand);
+}
+
+.badge.neutral {
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -1263,6 +1281,17 @@ tbody tr:hover {
 
   .line-grid-head {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 

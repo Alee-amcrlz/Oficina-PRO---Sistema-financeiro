@@ -3,20 +3,28 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Oficina Pro é um sistema de gestão para oficinas com orçamentos, estoque, contas a pagar e controle financeiro.">
+    <meta name="author" content="Oficina Pro">
+    <meta name="application-name" content="Oficina Pro">
+    <meta name="theme-color" content="#1d4f91">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Oficina Pro | Atendimento e Financeiro">
+    <meta property="og:description" content="Sistema de gestão para oficinas com orçamentos, estoque e financeiro em uma rotina simples.">
+    <meta property="og:image" content="assets/oficina-pro-logo-transparent.png">
     <title>Oficina Pro | Atendimento e Financeiro</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main id="authView" class="auth-shell">
-      <section class="auth-panel">
+    <section id="authView" class="auth-shell" aria-label="Acesso ao sistema">
+      <section class="auth-panel" aria-labelledby="loginTitle">
         <div class="auth-brand">
-          <img src="assets/oficina-pro-logo-transparent.png" alt="Oficina Pro" class="auth-logo">
+          <img src="assets/oficina-pro-logo-transparent.png" alt="Oficina Pro" class="auth-logo" width="320" height="320" decoding="async">
           <p class="muted">Orçamentos, faturamento e estoque em uma rotina simples para a oficina.</p>
         </div>
 
         <form id="loginForm" class="auth-form">
           <div class="form-head">
-            <h2>Entrar</h2>
+            <h2 id="loginTitle">Entrar</h2>
             <button type="button" id="showRegister" class="link-button hidden">Criar usuário</button>
           </div>
           <label>
@@ -29,15 +37,15 @@
           </label>
           <label class="remember-login">
             <input id="rememberLogin" type="checkbox">
-            <span>Lembrar usuário e senha neste computador</span>
+            <span>Lembrar usuário neste computador</span>
           </label>
           <button type="submit" class="primary">Acessar sistema</button>
-          <p id="loginMessage" class="message"></p>
+          <p id="loginMessage" class="message" aria-live="polite"></p>
         </form>
 
-        <form id="registerForm" class="auth-form hidden">
+        <form id="registerForm" class="auth-form hidden" aria-labelledby="registerTitle">
           <div class="form-head">
-            <h2>Novo usuário</h2>
+            <h2 id="registerTitle">Novo usuário</h2>
             <button type="button" id="showLogin" class="link-button">Voltar ao login</button>
           </div>
           <label>
@@ -53,25 +61,26 @@
             <input id="registerPassword" type="password" minlength="6" autocomplete="new-password" required>
           </label>
           <button type="submit" class="primary">Cadastrar</button>
-          <p id="registerMessage" class="message"></p>
+          <p id="registerMessage" class="message" aria-live="polite"></p>
         </form>
       </section>
-    </main>
+    </section>
 
-    <main id="appView" class="app-shell hidden">
-      <aside class="sidebar">
+    <main id="appView" class="app-shell hidden" aria-label="Sistema Oficina Pro">
+      <aside class="sidebar" aria-label="Navegação principal">
         <div class="sidebar-brand">
-          <img src="assets/oficina-pro-logo-transparent.png" alt="Oficina Pro" class="sidebar-logo">
+          <img src="assets/oficina-pro-logo-transparent.png" alt="Oficina Pro" class="sidebar-logo" width="64" height="64" decoding="async">
           <div>
             <strong>Oficina Pro</strong>
             <span>Gestão da oficina</span>
           </div>
           <button id="toggleSidebarButton" class="sidebar-toggle" type="button" title="Recolher painel" aria-label="Recolher painel">←</button>
         </div>
-        <nav>
-          <button class="nav-button active" data-view="dashboardView" data-feature="dashboard">Painel</button>
+        <nav aria-label="Menu principal">
+          <button type="button" class="nav-button active" data-view="dashboardView" data-feature="dashboard">Painel</button>
+          <button type="button" class="nav-button hidden" data-view="platformView" data-feature="platform">Painel Master</button>
           <div class="nav-group" data-feature="budgets">
-            <button class="nav-button nav-button-parent" data-menu-parent="budgets" data-feature="budgets">
+            <button type="button" class="nav-button nav-button-parent" data-menu-parent="budgets" data-feature="budgets" aria-haspopup="true">
               <span>Atendimento</span>
               <span class="nav-arrow">›</span>
             </button>
@@ -91,7 +100,7 @@
             </div>
           </div>
           <div class="nav-group" data-feature="billing">
-            <button class="nav-button nav-button-parent" data-menu-parent="billing" data-feature="billing">
+            <button type="button" class="nav-button nav-button-parent" data-menu-parent="billing" data-feature="billing" aria-haspopup="true">
               <span>Financeiro</span>
               <span class="nav-arrow">›</span>
             </button>
@@ -102,7 +111,7 @@
             </div>
           </div>
           <div class="nav-group" data-feature="inventory">
-            <button class="nav-button nav-button-parent" data-menu-parent="inventory" data-feature="inventory">
+            <button type="button" class="nav-button nav-button-parent" data-menu-parent="inventory" data-feature="inventory" aria-haspopup="true">
               <span>Gerenciamento de Estoque</span>
               <span class="nav-arrow">›</span>
             </button>
@@ -111,7 +120,7 @@
             </div>
           </div>
           <div class="nav-group" data-feature="settings">
-            <button class="nav-button nav-button-parent" data-view="settingsView" data-feature="settings">
+            <button type="button" class="nav-button nav-button-parent" data-view="settingsView" data-feature="settings" aria-haspopup="true">
               <span>Configurações</span>
               <span class="nav-arrow">›</span>
             </button>
@@ -125,7 +134,7 @@
           <div id="sidebarClock" class="sidebar-clock">--/--/-- 00:00:00</div>
           <div id="sidebarGreeting" class="sidebar-greeting">Bom dia</div>
           <div id="userName" class="sidebar-user">Usuário</div>
-          <button id="logoutButton" class="secondary">Sair</button>
+          <button id="logoutButton" class="secondary" type="button">Sair</button>
         </div>
       </aside>
 
@@ -137,7 +146,7 @@
           </div>
           <div class="topbar-actions">
             <button id="toggleThemeButton" class="icon-button" type="button" title="Alternar modo escuro" aria-label="Alternar modo escuro">◐</button>
-            <button id="newBudgetButton" class="primary">Novo orçamento</button>
+            <button id="newBudgetButton" class="primary" type="button">Novo orçamento</button>
           </div>
         </header>
 
@@ -181,6 +190,52 @@
           </div>
         </section>
 
+        <section id="platformView" class="view hidden">
+          <div class="metrics platform-metrics">
+            <article>
+              <span>Oficinas</span>
+              <strong id="platformCompanyCount">0</strong>
+            </article>
+            <article>
+              <span>Assinaturas ativas</span>
+              <strong id="platformActiveCount">0</strong>
+            </article>
+            <article>
+              <span>Em teste</span>
+              <strong id="platformTrialCount">0</strong>
+            </article>
+            <article>
+              <span>Com alerta</span>
+              <strong id="platformAlertCount">0</strong>
+            </article>
+            <article>
+              <span>Orçamentos aprovados</span>
+              <strong id="platformApprovedBudgetCount">0</strong>
+            </article>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Oficinas e assinaturas</h2>
+                <p class="muted">Monitoramento operacional das empresas cadastradas no SaaS.</p>
+              </div>
+              <button type="button" id="refreshPlatformButton" class="secondary">Atualizar</button>
+            </div>
+            <div id="platformCompaniesTable" class="table-wrap"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Pagamentos recentes</h2>
+                <p class="muted">Histórico retornado pela base de pagamentos da plataforma.</p>
+              </div>
+            </div>
+            <div id="platformPaymentsTable" class="table-wrap"></div>
+          </div>
+        </section>
+
         <section id="budgetView" class="view hidden">
           <div id="budgetLayout" class="split-layout">
             <form id="budgetForm" class="panel form-grid">
@@ -207,7 +262,7 @@
                 CEP
                 <input id="clientZip" type="text" inputmode="numeric" placeholder="Ex: 01001-000" required>
               </label>
-              <p id="zipMessage" class="message full"></p>
+              <p id="zipMessage" class="message full" aria-live="polite"></p>
               <label>
                 Endereço
                 <input id="clientStreet" type="text" placeholder="Rua/Avenida" required>
@@ -426,7 +481,7 @@
               </label>
               <button type="submit" class="primary full">Registrar compra</button>
               <button type="button" id="clearPayableFormButton" class="secondary full">Limpar</button>
-              <p id="payableMessage" class="message full"></p>
+              <p id="payableMessage" class="message full" aria-live="polite"></p>
             </form>
 
             <section class="panel">
@@ -490,7 +545,7 @@
               </label>
               <button type="submit" class="primary full">Registrar entrada</button>
               <button type="button" id="clearPartFormButton" class="secondary full">Limpar seleção</button>
-              <p id="partCreateMessage" class="message full"></p>
+              <p id="partCreateMessage" class="message full" aria-live="polite"></p>
             </form>
           </div>
         </section>
@@ -537,7 +592,7 @@
                     </label>
                     <button type="submit" id="saveUserButton" class="primary full">Criar usuário</button>
                     <button type="button" id="clearUserFormButton" class="secondary full hidden">Limpar seleção</button>
-                    <p id="userCreateMessage" class="message full"></p>
+                    <p id="userCreateMessage" class="message full" aria-live="polite"></p>
                   </form>
                 </div>
               </section>
@@ -556,7 +611,7 @@
                       <input id="accessLevelName" type="text" placeholder="Ex: Analista Financeiro" required>
                     </label>
                     <button type="submit" class="primary full">Criar nível</button>
-                    <p id="accessLevelMessage" class="message full"></p>
+                    <p id="accessLevelMessage" class="message full" aria-live="polite"></p>
                     <div id="accessLevelList" class="level-list full"></div>
                   </form>
 
@@ -569,7 +624,7 @@
                     </div>
                     <div id="permissionMatrix" class="permission-grid"></div>
                     <button id="savePermissionsButton" type="button" class="primary">Salvar permissões</button>
-                    <p id="permissionsMessage" class="message"></p>
+                    <p id="permissionsMessage" class="message" aria-live="polite"></p>
                   </section>
                 </div>
               </section>
@@ -585,10 +640,10 @@
       </section>
     </template>
 
-    <section id="budgetModal" class="modal-backdrop hidden" aria-modal="true" role="dialog">
+    <section id="budgetModal" class="modal-backdrop hidden" aria-modal="true" role="dialog" aria-labelledby="budgetModalTitle">
       <article class="modal">
         <div class="modal-head">
-          <h2>Detalhes do orçamento</h2>
+          <h2 id="budgetModalTitle">Detalhes do orçamento</h2>
           <button type="button" id="closeBudgetModal" class="secondary">Fechar</button>
         </div>
         <div id="budgetModalContent"></div>
@@ -603,10 +658,10 @@
       </article>
     </section>
 
-    <section id="partLookupModal" class="modal-backdrop hidden" aria-modal="true" role="dialog">
+    <section id="partLookupModal" class="modal-backdrop hidden" aria-modal="true" role="dialog" aria-labelledby="partLookupTitle">
       <article class="modal wide-modal">
         <div class="modal-head">
-          <h2>Pesquisar peça cadastrada</h2>
+          <h2 id="partLookupTitle">Pesquisar peça cadastrada</h2>
           <button type="button" id="closePartLookupModal" class="secondary">Fechar</button>
         </div>
         <label>
@@ -617,10 +672,10 @@
       </article>
     </section>
 
-    <section id="userLookupModal" class="modal-backdrop hidden" aria-modal="true" role="dialog">
+    <section id="userLookupModal" class="modal-backdrop hidden" aria-modal="true" role="dialog" aria-labelledby="userLookupTitle">
       <article class="modal wide-modal">
         <div class="modal-head">
-          <h2>Pesquisar usuário</h2>
+          <h2 id="userLookupTitle">Pesquisar usuário</h2>
           <button type="button" id="closeUserLookupModal" class="secondary">Fechar</button>
         </div>
         <label>
@@ -631,6 +686,6 @@
       </article>
     </section>
 
-    <script src="app.js"></script>
+    <script src="app.js" defer></script>
   </body>
 </html>
