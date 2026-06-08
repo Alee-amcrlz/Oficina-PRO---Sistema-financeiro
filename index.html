@@ -214,6 +214,153 @@
             </article>
           </div>
 
+          <form id="platformCompanyForm" class="panel form-grid">
+            <div class="panel-head">
+              <div>
+                <h2>Cadastrar oficina</h2>
+                <p class="muted">Crie uma empresa cliente com usuário dono e assinatura inicial.</p>
+              </div>
+            </div>
+            <label>
+              Nome da oficina
+              <input id="platformCompanyName" type="text" required>
+            </label>
+            <label>
+              Documento
+              <input id="platformCompanyDocument" type="text" placeholder="CNPJ ou CPF">
+            </label>
+            <label>
+              Telefone da oficina
+              <input id="platformCompanyPhone" type="tel">
+            </label>
+            <label>
+              Plano
+              <select id="platformCompanyPlan" required>
+                <option value="trial">Trial</option>
+                <option value="basico">Básico</option>
+                <option value="profissional">Profissional</option>
+                <option value="premium">Premium</option>
+                <option value="homologacao">Homologação</option>
+              </select>
+            </label>
+            <label>
+              Status
+              <select id="platformCompanyStatus" required>
+                <option value="trial">Teste</option>
+                <option value="active">Ativa</option>
+                <option value="past_due">Em atraso</option>
+                <option value="canceled">Cancelada</option>
+              </select>
+            </label>
+            <label>
+              Nome do dono
+              <input id="platformOwnerName" type="text" required>
+            </label>
+            <label>
+              E-mail do dono
+              <input id="platformOwnerEmail" type="email" required>
+            </label>
+            <label>
+              Usuário do dono
+              <input id="platformOwnerUsername" type="text" placeholder="Ex: oficina.silva">
+            </label>
+            <label>
+              Telefone do dono
+              <input id="platformOwnerPhone" type="tel">
+            </label>
+            <label>
+              Senha inicial
+              <input id="platformOwnerPassword" type="password" minlength="6" required>
+            </label>
+            <button type="submit" class="primary full">Cadastrar oficina</button>
+            <button type="button" id="clearPlatformCompanyFormButton" class="secondary full">Limpar</button>
+            <p id="platformCompanyMessage" class="message full" aria-live="polite"></p>
+          </form>
+
+          <div class="settings-layout platform-actions-layout">
+            <form id="platformSubscriptionForm" class="panel form-grid">
+              <div class="panel-head">
+                <div>
+                  <h2>Atualizar assinatura</h2>
+                  <p class="muted">Altere plano, status e período de uma oficina cadastrada.</p>
+                </div>
+              </div>
+              <label class="full">
+                Oficina
+                <select id="platformSubscriptionCompany" required></select>
+              </label>
+              <label>
+                Plano
+                <select id="platformSubscriptionPlan" required>
+                  <option value="trial">Trial</option>
+                  <option value="basico">Básico</option>
+                  <option value="profissional">Profissional</option>
+                  <option value="premium">Premium</option>
+                  <option value="homologacao">Homologação</option>
+                </select>
+              </label>
+              <label>
+                Status
+                <select id="platformSubscriptionStatus" required>
+                  <option value="trial">Teste</option>
+                  <option value="active">Ativa</option>
+                  <option value="past_due">Em atraso</option>
+                  <option value="canceled">Cancelada</option>
+                </select>
+              </label>
+              <label>
+                Início do período
+                <input id="platformPeriodStart" type="date">
+              </label>
+              <label>
+                Fim do período
+                <input id="platformPeriodEnd" type="date">
+              </label>
+              <label class="full">
+                Fim do teste
+                <input id="platformTrialEndsAt" type="date">
+              </label>
+              <button type="submit" class="primary full">Salvar assinatura</button>
+              <p id="platformSubscriptionMessage" class="message full" aria-live="polite"></p>
+            </form>
+
+            <form id="platformPaymentForm" class="panel form-grid">
+              <div class="panel-head">
+                <div>
+                  <h2>Registrar pagamento</h2>
+                  <p class="muted">Use para homologação ou lançamento manual de cobrança.</p>
+                </div>
+              </div>
+              <label class="full">
+                Oficina
+                <select id="platformPaymentCompany" required></select>
+              </label>
+              <label>
+                Valor
+                <input id="platformPaymentAmount" type="number" min="0" step="0.01" required>
+              </label>
+              <label>
+                Status
+                <select id="platformPaymentStatus" required>
+                  <option value="paid">Pago</option>
+                  <option value="pending">Pendente</option>
+                  <option value="failed">Falhou</option>
+                  <option value="refunded">Estornado</option>
+                </select>
+              </label>
+              <label>
+                Pago em
+                <input id="platformPaymentPaidAt" type="date">
+              </label>
+              <label>
+                Provedor
+                <input id="platformPaymentProvider" type="text" value="manual">
+              </label>
+              <button type="submit" class="primary full">Registrar pagamento</button>
+              <p id="platformPaymentMessage" class="message full" aria-live="polite"></p>
+            </form>
+          </div>
+
           <div class="panel">
             <div class="panel-head">
               <div>
@@ -221,6 +368,34 @@
                 <p class="muted">Monitoramento operacional das empresas cadastradas no SaaS.</p>
               </div>
               <button type="button" id="refreshPlatformButton" class="secondary">Atualizar</button>
+            </div>
+            <div class="platform-filters">
+              <label>
+                Status
+                <select id="platformStatusFilter">
+                  <option value="todos">Todos</option>
+                  <option value="trial">Teste</option>
+                  <option value="active">Ativa</option>
+                  <option value="past_due">Em atraso</option>
+                  <option value="canceled">Cancelada</option>
+                </select>
+              </label>
+              <label>
+                Plano
+                <select id="platformPlanFilter">
+                  <option value="todos">Todos</option>
+                  <option value="trial">Trial</option>
+                  <option value="basico">Básico</option>
+                  <option value="profissional">Profissional</option>
+                  <option value="premium">Premium</option>
+                  <option value="homologacao">Homologação</option>
+                </select>
+              </label>
+              <label>
+                Buscar
+                <input id="platformSearchFilter" type="search" placeholder="Nome, documento ou ID">
+              </label>
+              <span id="platformFilteredCount" class="muted"></span>
             </div>
             <div id="platformCompaniesTable" class="table-wrap"></div>
           </div>
@@ -233,6 +408,16 @@
               </div>
             </div>
             <div id="platformPaymentsTable" class="table-wrap"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Auditoria master</h2>
+                <p class="muted">Registro das ações administrativas feitas pela plataforma.</p>
+              </div>
+            </div>
+            <div id="platformAuditTable" class="table-wrap"></div>
           </div>
         </section>
 

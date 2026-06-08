@@ -54,6 +54,7 @@ let payables = [];
 let platformCompanies = [];
 let platformSubscriptions = [];
 let platformPayments = [];
+let platformAudit = [];
 let selectedInventoryPartId = null;
 let selectedSupplierId = null;
 let users = [];
@@ -185,6 +186,31 @@ async function createPayable(payable) {
   });
 }
 
+async function createPlatformCompany(company) {
+  return api("/platform/companies", {
+    method: "POST",
+    body: JSON.stringify(company)
+  });
+}
+
+async function updatePlatformSubscription(subscription) {
+  return api(`/platform/subscriptions/${Number(subscription.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(subscription)
+  });
+}
+
+async function createPlatformPayment(payment) {
+  return api("/platform/payments", {
+    method: "POST",
+    body: JSON.stringify(payment)
+  });
+}
+
+async function loadPlatformAudit() {
+  platformAudit = await api("/platform/audit?limit=30");
+}
+
 async function loadBudgets() {
   const all = await api("/budgets");
   const visibleBudgets = canAccess("billing_view")
@@ -212,10 +238,11 @@ async function loadPayables() {
 
 async function loadPlatformDashboard() {
   if (!canAccess("platform")) return;
-  [platformCompanies, platformSubscriptions, platformPayments] = await Promise.all([
+  [platformCompanies, platformSubscriptions, platformPayments, platformAudit] = await Promise.all([
     api("/platform/companies"),
     api("/platform/subscriptions"),
-    api("/platform/payments")
+    api("/platform/payments"),
+    api("/platform/audit?limit=30")
   ]);
   renderPlatformDashboard();
 }
@@ -892,8 +919,69 @@ function renderPlatformDashboard() {
   $("#platformTrialCount").textContent = trial.length;
   $("#platformAlertCount").textContent = alerts.length;
   $("#platformApprovedBudgetCount").textContent = approvedBudgets;
+  renderPlatformActionOptions();
   renderPlatformCompaniesTable();
   renderPlatformPaymentsTable();
+  renderPlatformAuditTable();
+}
+
+function dateInputValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function selectedPlatformCompany(selectId) {
+  const id = Number($(`#${selectId}`)?.value || 0);
+  return platformCompanies.find((company) => Number(company.id) === id) || null;
+}
+
+function renderPlatformActionOptions() {
+  const options = platformCompanies.map((company) => `
+    <option value="${company.id}">${escapeHtml(company.name)} - ${escapeHtml(subscriptionLabel(company.subscriptionStatus))}</option>
+  `).join("");
+
+  ["platformSubscriptionCompany", "platformPaymentCompany"].forEach((selectId) => {
+    const select = $(`#${selectId}`);
+    if (!select) return;
+    const currentValue = select.value;
+    select.innerHTML = options || '<option value="">Nenhuma oficina</option>';
+    if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
+      select.value = currentValue;
+    }
+  });
+
+  fillPlatformSubscriptionForm(selectedPlatformCompany("platformSubscriptionCompany") || platformCompanies[0]);
+}
+
+function fillPlatformSubscriptionForm(company) {
+  if (!company) return;
+  $("#platformSubscriptionCompany").value = company.id;
+  $("#platformSubscriptionPlan").value = company.plan || "trial";
+  $("#platformSubscriptionStatus").value = company.subscriptionStatus || "trial";
+  $("#platformPeriodStart").value = dateInputValue(company.currentPeriodStart);
+  $("#platformPeriodEnd").value = dateInputValue(company.currentPeriodEnd);
+  $("#platformTrialEndsAt").value = dateInputValue(company.trialEndsAt);
+}
+
+function filteredPlatformCompanies() {
+  const status = $("#platformStatusFilter")?.value || "todos";
+  const plan = $("#platformPlanFilter")?.value || "todos";
+  const search = ($("#platformSearchFilter")?.value || "").trim().toLowerCase();
+
+  return platformCompanies.filter((company) => {
+    const matchesStatus = status === "todos" || company.subscriptionStatus === status;
+    const matchesPlan = plan === "todos" || company.plan === plan;
+    const searchable = [
+      company.name,
+      company.document,
+      company.phone,
+      company.id
+    ].map((value) => String(value || "").toLowerCase()).join(" ");
+    const matchesSearch = !search || searchable.includes(search);
+    return matchesStatus && matchesPlan && matchesSearch;
+  });
 }
 
 function renderPlatformCompaniesTable() {
@@ -905,7 +993,18 @@ function renderPlatformCompaniesTable() {
     return;
   }
 
-  const rows = platformCompanies.map((company) => `
+  const filteredCompanies = filteredPlatformCompanies();
+  const filteredCount = $("#platformFilteredCount");
+  if (filteredCount) {
+    filteredCount.textContent = `${filteredCompanies.length} de ${platformCompanies.length} oficinas`;
+  }
+
+  if (!filteredCompanies.length) {
+    container.innerHTML = '<p class="empty">Nenhuma oficina encontrada com os filtros atuais.</p>';
+    return;
+  }
+
+  const rows = filteredCompanies.map((company) => `
     <tr>
       <td>
         <strong>${escapeHtml(company.name)}</strong><br>
@@ -933,6 +1032,65 @@ function renderPlatformCompaniesTable() {
           <th>Aprovados</th>
           <th>Próximo marco</th>
           <th>Último pagamento</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function auditActionLabel(action) {
+  const labels = {
+    "company.create": "Oficina criada",
+    "subscription.create": "Assinatura criada",
+    "subscription.update": "Assinatura atualizada",
+    "payment.create": "Pagamento registrado"
+  };
+  return labels[action] || action || "Ação";
+}
+
+function auditDetailsText(details = {}) {
+  if (details.after) {
+    const before = details.before || {};
+    return `${before.plan || "sem plano"} / ${before.status || "sem status"} -> ${details.after.plan || "sem plano"} / ${details.after.status || "sem status"}`;
+  }
+  if (details.amount !== undefined) {
+    return `${currency.format(Number(details.amount || 0))} - ${details.status || "sem status"}`;
+  }
+  if (details.companyName) {
+    return `${details.companyName} - ${details.plan || "sem plano"} / ${details.status || "sem status"}`;
+  }
+  return "Sem detalhes";
+}
+
+function renderPlatformAuditTable() {
+  const container = $("#platformAuditTable");
+  if (!container) return;
+
+  if (!platformAudit.length) {
+    container.innerHTML = '<p class="empty">Nenhuma ação master registrada ainda.</p>';
+    return;
+  }
+
+  const rows = platformAudit.map((item) => `
+    <tr>
+      <td>${formatOptionalDate(item.createdAt)}</td>
+      <td>${escapeHtml(auditActionLabel(item.action))}</td>
+      <td>${escapeHtml(item.targetCompanyName || "Plataforma")}</td>
+      <td>${escapeHtml(item.actorEmail || "Não informado")}</td>
+      <td>${escapeHtml(auditDetailsText(item.details))}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Ação</th>
+          <th>Oficina</th>
+          <th>Operador</th>
+          <th>Detalhes</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -975,6 +1133,11 @@ function renderPlatformPaymentsTable() {
       <tbody>${rows}</tbody>
     </table>
   `;
+}
+
+function clearPlatformCompanyForm() {
+  $("#platformCompanyForm")?.reset();
+  setMessage($("#platformCompanyMessage"), "");
 }
 
 function renderBudgetList() {
@@ -2136,6 +2299,97 @@ function bindEvents() {
   });
 
   $("#refreshPlatformButton")?.addEventListener("click", loadPlatformDashboard);
+  $("#clearPlatformCompanyFormButton")?.addEventListener("click", clearPlatformCompanyForm);
+  ["platformStatusFilter", "platformPlanFilter", "platformSearchFilter"].forEach((id) => {
+    $(`#${id}`)?.addEventListener("input", renderPlatformCompaniesTable);
+    $(`#${id}`)?.addEventListener("change", renderPlatformCompaniesTable);
+  });
+  $("#platformSubscriptionCompany")?.addEventListener("change", (event) => {
+    const company = platformCompanies.find((item) => Number(item.id) === Number(event.target.value));
+    fillPlatformSubscriptionForm(company);
+  });
+  $("#platformSubscriptionForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("platform")) return;
+
+    const company = selectedPlatformCompany("platformSubscriptionCompany");
+    if (!company?.subscriptionId) {
+      setMessage($("#platformSubscriptionMessage"), "Selecione uma oficina com assinatura.");
+      return;
+    }
+
+    try {
+      await updatePlatformSubscription({
+        id: company.subscriptionId,
+        plan: $("#platformSubscriptionPlan").value,
+        status: $("#platformSubscriptionStatus").value,
+        currentPeriodStart: $("#platformPeriodStart").value,
+        currentPeriodEnd: $("#platformPeriodEnd").value,
+        trialEndsAt: $("#platformTrialEndsAt").value,
+        updatedAt: new Date().toISOString()
+      });
+      setMessage($("#platformSubscriptionMessage"), "Assinatura atualizada com sucesso.", true);
+      await loadPlatformDashboard();
+    } catch (error) {
+      setMessage($("#platformSubscriptionMessage"), error.message);
+    }
+  });
+  $("#platformPaymentForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("platform")) return;
+
+    const company = selectedPlatformCompany("platformPaymentCompany");
+    if (!company?.id) {
+      setMessage($("#platformPaymentMessage"), "Selecione uma oficina.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    try {
+      await createPlatformPayment({
+        companyId: company.id,
+        subscriptionId: company.subscriptionId || null,
+        provider: $("#platformPaymentProvider").value.trim() || "manual",
+        amount: Number($("#platformPaymentAmount").value || 0),
+        status: $("#platformPaymentStatus").value,
+        paidAt: $("#platformPaymentPaidAt").value,
+        createdAt: now,
+        updatedAt: now
+      });
+      $("#platformPaymentForm").reset();
+      $("#platformPaymentProvider").value = "manual";
+      setMessage($("#platformPaymentMessage"), "Pagamento registrado com sucesso.", true);
+      await loadPlatformDashboard();
+    } catch (error) {
+      setMessage($("#platformPaymentMessage"), error.message);
+    }
+  });
+  $("#platformCompanyForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("platform")) return;
+
+    const payload = {
+      companyName: $("#platformCompanyName").value.trim(),
+      document: $("#platformCompanyDocument").value.trim(),
+      phone: $("#platformCompanyPhone").value.trim(),
+      plan: $("#platformCompanyPlan").value,
+      status: $("#platformCompanyStatus").value,
+      ownerName: $("#platformOwnerName").value.trim(),
+      ownerEmail: $("#platformOwnerEmail").value.toLowerCase().trim(),
+      ownerUsername: $("#platformOwnerUsername").value.trim().toLowerCase(),
+      ownerPhone: $("#platformOwnerPhone").value.trim(),
+      ownerPassword: $("#platformOwnerPassword").value
+    };
+
+    try {
+      await createPlatformCompany(payload);
+      clearPlatformCompanyForm();
+      setMessage($("#platformCompanyMessage"), "Oficina cadastrada com sucesso.", true);
+      await loadPlatformDashboard();
+    } catch (error) {
+      setMessage($("#platformCompanyMessage"), error.message);
+    }
+  });
 
   document.querySelectorAll(".nav-button").forEach((button) => {
     button.addEventListener("click", () => {

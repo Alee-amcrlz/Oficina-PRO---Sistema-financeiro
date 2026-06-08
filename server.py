@@ -129,6 +129,17 @@ PAYMENT_COLUMNS = [
     "updatedAt",
 ]
 
+AUDIT_COLUMNS = [
+    "actorUserId",
+    "actorEmail",
+    "action",
+    "targetType",
+    "targetId",
+    "targetCompanyId",
+    "details",
+    "createdAt",
+]
+
 
 def connect():
     conn = sqlite3.connect(DB_PATH)
@@ -355,6 +366,20 @@ def init_db():
                 FOREIGN KEY (subscriptionId) REFERENCES subscriptions(id)
             );
 
+            CREATE TABLE IF NOT EXISTS platform_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actorUserId INTEGER,
+                actorEmail TEXT,
+                action TEXT NOT NULL,
+                targetType TEXT NOT NULL,
+                targetId INTEGER,
+                targetCompanyId INTEGER,
+                details TEXT NOT NULL DEFAULT '{}',
+                createdAt TEXT,
+                FOREIGN KEY (actorUserId) REFERENCES users(id),
+                FOREIGN KEY (targetCompanyId) REFERENCES companies(id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_accounts_payable_created ON accounts_payable(createdAt);
             CREATE INDEX IF NOT EXISTS idx_accounts_payable_due ON accounts_payable(competenceDate);
             CREATE INDEX IF NOT EXISTS idx_accounts_payable_supplier ON accounts_payable(supplierName COLLATE NOCASE);
@@ -362,6 +387,8 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
             CREATE INDEX IF NOT EXISTS idx_payments_company ON payments(companyId);
             CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+            CREATE INDEX IF NOT EXISTS idx_platform_audit_created ON platform_audit_log(createdAt);
+            CREATE INDEX IF NOT EXISTS idx_platform_audit_company ON platform_audit_log(targetCompanyId);
             """
         )
         ensure_column(conn, "users", "companyId", "INTEGER")
@@ -534,6 +561,14 @@ def normalize_user(payload, existing=None):
     return data
 
 
+def normalize_company(payload):
+    return {
+        "name": str(payload.get("companyName") or payload.get("name") or "").strip(),
+        "document": str(payload.get("document") or "").strip(),
+        "phone": str(payload.get("phone") or "").strip(),
+    }
+
+
 def normalize_budget(payload):
     data = {key: payload.get(key) for key in BUDGET_COLUMNS}
     data["userId"] = int(data.get("userId") or 0)
@@ -601,6 +636,37 @@ def normalize_payment(payload):
     data["amount"] = float(data.get("amount") or 0)
     data["status"] = str(data.get("status") or "pending").strip()
     return data
+
+
+def row_to_audit(row):
+    if row is None:
+        return None
+    item = dict(row)
+    try:
+        item["details"] = json.loads(item.get("details") or "{}")
+    except json.JSONDecodeError:
+        item["details"] = {}
+    return item
+
+
+def log_platform_audit(conn, actor, action, target_type, target_id=None, target_company_id=None, details=None):
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    data = {
+        "actorUserId": actor.get("id") if actor else None,
+        "actorEmail": actor.get("email") if actor else "",
+        "action": action,
+        "targetType": target_type,
+        "targetId": target_id,
+        "targetCompanyId": target_company_id,
+        "details": json.dumps(details or {}, ensure_ascii=False),
+        "createdAt": now,
+    }
+    columns = ", ".join(AUDIT_COLUMNS)
+    marks = ", ".join(["?"] * len(AUDIT_COLUMNS))
+    conn.execute(
+        f"INSERT INTO platform_audit_log ({columns}) VALUES ({marks})",
+        [data[column] for column in AUDIT_COLUMNS],
+    )
 
 
 def next_part_code(conn):
@@ -678,8 +744,10 @@ class Handler(SimpleHTTPRequestHandler):
                             companies.ownerUserId,
                             companies.createdAt,
                             companies.updatedAt,
+                            subscriptions.id AS subscriptionId,
                             subscriptions.plan,
                             subscriptions.status AS subscriptionStatus,
+                            subscriptions.currentPeriodStart,
                             subscriptions.currentPeriodEnd,
                             subscriptions.trialEndsAt,
                             COUNT(DISTINCT users.id) AS userCount,
@@ -737,6 +805,29 @@ class Handler(SimpleHTTPRequestHandler):
                         """
                     ).fetchall()
                 self.send_json([row_to_payment(row) for row in rows])
+                return
+
+            if path == "/api/platform/audit":
+                if not is_platform_admin(auth_user):
+                    self.send_json({"error": "Acesso restrito ao painel master."}, 403)
+                    return
+
+                limit = int(query.get("limit", ["30"])[0] or 30)
+                limit = min(max(limit, 1), 100)
+                with connect() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT
+                            platform_audit_log.*,
+                            companies.name AS targetCompanyName
+                        FROM platform_audit_log
+                        LEFT JOIN companies ON companies.id = platform_audit_log.targetCompanyId
+                        ORDER BY datetime(platform_audit_log.createdAt) DESC, platform_audit_log.id DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                self.send_json([row_to_audit(row) for row in rows])
                 return
 
             if path == "/api/users":
@@ -892,6 +983,15 @@ class Handler(SimpleHTTPRequestHandler):
                         f"INSERT INTO subscriptions ({columns}) VALUES ({marks})",
                         [data[column] for column in SUBSCRIPTION_COLUMNS],
                     )
+                    log_platform_audit(
+                        conn,
+                        auth_user,
+                        "subscription.create",
+                        "subscription",
+                        cursor.lastrowid,
+                        data["companyId"],
+                        {"plan": data["plan"], "status": data["status"]},
+                    )
                     row = conn.execute("SELECT * FROM subscriptions WHERE id = ?", (cursor.lastrowid,)).fetchone()
                 self.send_json(row_to_subscription(row), 201)
                 return
@@ -909,8 +1009,140 @@ class Handler(SimpleHTTPRequestHandler):
                         f"INSERT INTO payments ({columns}) VALUES ({marks})",
                         [data[column] for column in PAYMENT_COLUMNS],
                     )
+                    log_platform_audit(
+                        conn,
+                        auth_user,
+                        "payment.create",
+                        "payment",
+                        cursor.lastrowid,
+                        data["companyId"],
+                        {
+                            "amount": data["amount"],
+                            "status": data["status"],
+                            "provider": data["provider"],
+                            "paidAt": data["paidAt"],
+                        },
+                    )
                     row = conn.execute("SELECT * FROM payments WHERE id = ?", (cursor.lastrowid,)).fetchone()
                 self.send_json(row_to_payment(row), 201)
+                return
+
+            if parsed.path == "/api/platform/companies":
+                if not is_platform_admin(auth_user):
+                    self.send_json({"error": "Acesso restrito ao painel master."}, 403)
+                    return
+
+                company = normalize_company(payload)
+                owner_email = str(payload.get("ownerEmail") or "").lower().strip()
+                owner_username = str(payload.get("ownerUsername") or "").lower().strip() or None
+                owner_password = str(payload.get("ownerPassword") or "")
+                owner_name = str(payload.get("ownerName") or "").strip()
+                owner_phone = str(payload.get("ownerPhone") or "").strip()
+                plan = str(payload.get("plan") or "trial").strip()
+                status = str(payload.get("status") or "trial").strip()
+                now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+                if not company["name"]:
+                    self.send_json({"error": "Informe o nome da oficina."}, 400)
+                    return
+                if not owner_name or not owner_email or len(owner_password) < 6:
+                    self.send_json({"error": "Informe dono, e-mail e senha inicial com pelo menos 6 caracteres."}, 400)
+                    return
+
+                with connect() as conn:
+                    existing_email = conn.execute(
+                        "SELECT 1 FROM users WHERE lower(email) = ?",
+                        (owner_email,),
+                    ).fetchone()
+                    if existing_email:
+                        self.send_json({"error": "Já existe um usuário com este e-mail."}, 409)
+                        return
+
+                    if owner_username:
+                        existing_username = conn.execute(
+                            """
+                            SELECT 1 FROM users
+                            WHERE lower(username) = ?
+                            """,
+                            (owner_username,),
+                        ).fetchone()
+                        if existing_username:
+                            self.send_json({"error": "Já existe um usuário com este nome de usuário."}, 409)
+                            return
+
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO companies (name, document, phone, createdAt, updatedAt)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (company["name"], company["document"], company["phone"], now, now),
+                    )
+                    company_id = cursor.lastrowid
+                    owner_hash = hash_password(owner_password)
+                    user_cursor = conn.execute(
+                        """
+                        INSERT INTO users (
+                            companyId, isPlatformAdmin, name, username, email, phone,
+                            passwordHash, role, accessLevel, blocked, createdAt, updatedAt
+                        )
+                        VALUES (?, 0, ?, ?, ?, ?, ?, 'admin', 'administrador', 0, ?, ?)
+                        """,
+                        (company_id, owner_name, owner_username, owner_email, owner_phone, owner_hash, now, now),
+                    )
+                    owner_id = user_cursor.lastrowid
+                    conn.execute(
+                        "UPDATE companies SET ownerUserId = ? WHERE id = ?",
+                        (owner_id, company_id),
+                    )
+                    sub_cursor = conn.execute(
+                        """
+                        INSERT INTO subscriptions (companyId, plan, status, createdAt, updatedAt)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (company_id, plan, status, now, now),
+                    )
+                    log_platform_audit(
+                        conn,
+                        auth_user,
+                        "company.create",
+                        "company",
+                        company_id,
+                        company_id,
+                        {
+                            "companyName": company["name"],
+                            "ownerUserId": owner_id,
+                            "ownerEmail": owner_email,
+                            "subscriptionId": sub_cursor.lastrowid,
+                            "plan": plan,
+                            "status": status,
+                        },
+                    )
+                    row = conn.execute(
+                        """
+                        SELECT
+                            companies.id,
+                            companies.name,
+                            companies.document,
+                            companies.phone,
+                            companies.ownerUserId,
+                            companies.createdAt,
+                            companies.updatedAt,
+                            subscriptions.plan,
+                            subscriptions.status AS subscriptionStatus,
+                            NULL AS currentPeriodStart,
+                            subscriptions.currentPeriodEnd,
+                            subscriptions.trialEndsAt,
+                            1 AS userCount,
+                            0 AS budgetCount,
+                            0 AS approvedBudgetCount,
+                            NULL AS lastPaymentAt
+                        FROM companies
+                        JOIN subscriptions ON subscriptions.id = ?
+                        WHERE companies.id = ?
+                        """,
+                        (sub_cursor.lastrowid, company_id),
+                    ).fetchone()
+                self.send_json(dict(row), 201)
                 return
 
             if parsed.path == "/api/users":
@@ -1027,6 +1259,30 @@ class Handler(SimpleHTTPRequestHandler):
                     conn.execute(
                         f"UPDATE subscriptions SET {assignments} WHERE id = ?",
                         [data[column] for column in SUBSCRIPTION_COLUMNS] + [subscription_id],
+                    )
+                    log_platform_audit(
+                        conn,
+                        auth_user,
+                        "subscription.update",
+                        "subscription",
+                        subscription_id,
+                        data["companyId"],
+                        {
+                            "before": {
+                                "plan": current["plan"],
+                                "status": current["status"],
+                                "currentPeriodStart": current["currentPeriodStart"],
+                                "currentPeriodEnd": current["currentPeriodEnd"],
+                                "trialEndsAt": current["trialEndsAt"],
+                            },
+                            "after": {
+                                "plan": data["plan"],
+                                "status": data["status"],
+                                "currentPeriodStart": data["currentPeriodStart"],
+                                "currentPeriodEnd": data["currentPeriodEnd"],
+                                "trialEndsAt": data["trialEndsAt"],
+                            },
+                        },
                     )
                     row = conn.execute("SELECT * FROM subscriptions WHERE id = ?", (subscription_id,)).fetchone()
                 self.send_json(row_to_subscription(row))

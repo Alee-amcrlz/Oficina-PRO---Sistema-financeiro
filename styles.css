@@ -774,6 +774,19 @@ select:focus {
   grid-column: 1 / -1;
 }
 
+.platform-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 210px) minmax(160px, 210px) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin: 18px 0 4px;
+}
+
+.platform-filters .muted {
+  padding-bottom: 11px;
+  white-space: nowrap;
+}
+
 .line-items {
   display: grid;
   gap: 10px;
@@ -1269,8 +1282,13 @@ tbody tr:hover {
   .metrics,
   .totals-box,
   .detail-grid,
+  .platform-filters,
   .permission-grid {
     grid-template-columns: 1fr;
+  }
+
+  .platform-filters .muted {
+    padding-bottom: 0;
   }
 
   .line-grid,

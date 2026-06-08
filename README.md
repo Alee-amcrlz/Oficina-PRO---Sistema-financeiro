@@ -69,4 +69,8 @@ Este banco local está sendo usado como ambiente de homologação. Ele pode rece
 - Base inicial de assinatura com tabelas `subscriptions` e `payments`.
 - Base inicial de Painel Master via API para monitorar empresas, planos, status de assinatura e pagamentos.
 - Tela inicial de Painel Master, visível apenas para usuário plataforma, com resumo de oficinas, assinaturas e pagamentos.
+- Cadastro de nova oficina pelo Painel Master com usuário dono e assinatura inicial.
+- Ações administrativas no Painel Master para atualizar assinatura e registrar pagamento manual.
+- Filtros no Painel Master por status, plano e busca por oficina.
+- Auditoria master para registrar criação de oficina, alteração de assinatura e lançamento de pagamento.
 - Painel Master não exibe faturamento operacional das oficinas por padrão; acesso a valores da oficina fica reservado para suporte autorizado e auditável.
