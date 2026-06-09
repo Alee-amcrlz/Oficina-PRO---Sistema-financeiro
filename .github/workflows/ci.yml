@@ -1,0 +1,63 @@
+name: Oficina Pro CI
+
+on:
+  push:
+    branches:
+      - codex/oficina-pro-v1.1
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Python syntax
+        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/smoke_api.py scripts/validate_schema.py
+
+      - name: JavaScript syntax
+        run: node --check app.js
+
+      - name: Preflight
+        run: python scripts/preflight.py
+
+      - name: Validate schema
+        run: python scripts/validate_schema.py
+
+      - name: Start server
+        run: |
+          python server.py > server.log 2>&1 &
+          echo $! > server.pid
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:4173/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat server.log
+          exit 1
+
+      - name: Smoke API
+        env:
+          SMOKE_TENANT_LOGIN: dono.essencial.20260608131630@oficinapro.local
+          SMOKE_TENANT_PASSWORD: Teste@123
+        run: python scripts/smoke_api.py
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill "$(cat server.pid)" || true
+          fi
