@@ -52,6 +52,8 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
 - Sessões persistidas no banco com hash do token, em vez de memória do processo.
 - Auditoria de tentativas de login com bloqueio temporário contra força bruta.
+- Usuário administrador inicial configurável por ambiente.
+- Trava de segurança para impedir produção antes do runtime PostgreSQL real.
 - Headers básicos de segurança HTTP.
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Registro de baseline de schema em `schema_migrations`.

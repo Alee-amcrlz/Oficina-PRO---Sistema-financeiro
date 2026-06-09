@@ -36,6 +36,8 @@ def main():
     host = os.environ.get("HOST", "127.0.0.1")
     database_url = os.environ.get("DATABASE_URL", "")
     sqlite_path = os.environ.get("SQLITE_PATH", "oficina.db")
+    default_admin_email = os.environ.get("DEFAULT_ADMIN_EMAIL", "master@oficina.local").strip().lower()
+    default_admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "Master@123")
     failures = []
 
     ok(f"APP_ENV={env}")
@@ -45,12 +47,20 @@ def main():
     else:
         ok(f"HOST={host}")
 
-    if env == "production" and not database_url:
-        fail("Produção precisa de DATABASE_URL apontando para banco gerenciado.", failures)
-    elif not database_url:
-        warn(f"Sem DATABASE_URL. Usando SQLite em {sqlite_path}. Adequado apenas para local/staging controlado.")
+    if database_url:
+        fail("DATABASE_URL foi configurado, mas o runtime atual ainda usa SQLite.", failures)
+    elif env == "production":
+        fail("APP_ENV=production esta bloqueado ate o runtime PostgreSQL ser implementado e validado.", failures)
     else:
-        ok("DATABASE_URL configurado.")
+        warn(f"Sem DATABASE_URL. Usando SQLite em {sqlite_path}. Adequado apenas para local/staging controlado.")
+
+    if env in {"staging", "production"}:
+        if default_admin_email == "master@oficina.local":
+            fail("DEFAULT_ADMIN_EMAIL precisa ser alterado em ambiente online.", failures)
+        if default_admin_password == "Master@123":
+            fail("DEFAULT_ADMIN_PASSWORD precisa ser alterada em ambiente online.", failures)
+        if len(default_admin_password) < 12:
+            fail("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.", failures)
 
     iterations = int(os.environ.get("PASSWORD_HASH_ITERATIONS", "260000"))
     if iterations < 260000:

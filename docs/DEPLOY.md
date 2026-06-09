@@ -23,6 +23,10 @@ Variáveis principais:
 - `LOGIN_MAX_ATTEMPTS`: quantidade de falhas permitidas na janela de segurança.
 - `LOGIN_WINDOW_SECONDS`: janela usada para contar falhas de login.
 - `LOGIN_LOCK_SECONDS`: tempo de bloqueio temporário após excesso de falhas.
+- `DEFAULT_ADMIN_NAME`: nome do administrador inicial.
+- `DEFAULT_ADMIN_USERNAME`: usuário curto do administrador inicial.
+- `DEFAULT_ADMIN_EMAIL`: e-mail do administrador inicial.
+- `DEFAULT_ADMIN_PASSWORD`: senha do administrador inicial.
 
 ## Estado atual
 
@@ -32,6 +36,8 @@ O sistema já possui:
 - Hash de senha com PBKDF2 e migração automática de hashes legados no login.
 - Sessões persistidas no banco com hash do token.
 - Auditoria de tentativas de login com IP, user-agent, motivo e bloqueio temporário por excesso de falhas.
+- Usuário administrador inicial configurável por ambiente.
+- Trava de runtime para impedir produção enquanto o servidor ainda usa SQLite.
 - Isolamento multiempresa por `companyId` nas rotas principais.
 - Planos comerciais e bloqueio de recursos por plano.
 - Painel Master com auditoria.
@@ -47,6 +53,8 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 
 - Configurar `APP_ENV=staging`.
 - Configurar `HOST=0.0.0.0`.
+- Configurar `DEFAULT_ADMIN_EMAIL` com e-mail administrativo real.
+- Configurar `DEFAULT_ADMIN_PASSWORD` com senha forte e exclusiva.
 - Configurar volume persistente para `SQLITE_PATH`.
 - Para simular staging local, usar `docker compose up --build`.
 - Rodar backup manual com `python scripts/backup_sqlite.py` antes de testes destrutivos.
@@ -60,6 +68,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 ## Checklist de produção
 
 - Migrar para PostgreSQL gerenciado.
+- Implementar runtime PostgreSQL antes de liberar `APP_ENV=production`.
 - Criar rotina de backup e restauração.
 - Configurar Mercado Pago em produção.
 - Ativar webhook de assinatura.

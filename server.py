@@ -46,6 +46,44 @@ PASSWORD_HASH_ITERATIONS = env_int("PASSWORD_HASH_ITERATIONS", 260000)
 LOGIN_MAX_ATTEMPTS = env_int("LOGIN_MAX_ATTEMPTS", 5)
 LOGIN_WINDOW_SECONDS = env_int("LOGIN_WINDOW_SECONDS", 15 * 60)
 LOGIN_LOCK_SECONDS = env_int("LOGIN_LOCK_SECONDS", 15 * 60)
+DEFAULT_ADMIN_NAME = os.environ.get("DEFAULT_ADMIN_NAME", "MASTER").strip() or "MASTER"
+DEFAULT_ADMIN_USERNAME = os.environ.get("DEFAULT_ADMIN_USERNAME", "master").strip() or "master"
+DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "master@oficina.local").strip().lower()
+DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "Master@123")
+ONLINE_ENVS = {"staging", "production"}
+
+
+def validate_runtime_config():
+    failures = []
+    allowed_envs = {"local", "staging", "production"}
+
+    if APP_ENV not in allowed_envs:
+        failures.append("APP_ENV deve ser local, staging ou production.")
+
+    if DATABASE_URL:
+        failures.append(
+            "DATABASE_URL foi configurado, mas o runtime atual ainda usa SQLite. "
+            "Nao suba o servidor com uma falsa conexao PostgreSQL."
+        )
+
+    if APP_ENV == "production":
+        failures.append(
+            "APP_ENV=production esta bloqueado ate o runtime PostgreSQL ser implementado e validado."
+        )
+
+    if APP_ENV in ONLINE_ENVS and HOST in {"127.0.0.1", "localhost"}:
+        failures.append("HOST precisa ser 0.0.0.0 em staging/production.")
+
+    if APP_ENV in ONLINE_ENVS:
+        if DEFAULT_ADMIN_PASSWORD == "Master@123":
+            failures.append("DEFAULT_ADMIN_PASSWORD precisa ser alterada em ambiente online.")
+        if len(DEFAULT_ADMIN_PASSWORD) < 12:
+            failures.append("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.")
+        if DEFAULT_ADMIN_EMAIL == "master@oficina.local":
+            failures.append("DEFAULT_ADMIN_EMAIL precisa ser um email administrativo real em ambiente online.")
+
+    if failures:
+        raise RuntimeError("Configuracao insegura:\n- " + "\n- ".join(failures))
 
 PLAN_CATALOG = {
     "essencial": {
@@ -878,37 +916,44 @@ def init_db():
                 (default_company_id,),
             )
 
-        master_hash = hash_password("Master@123")
+        master_hash = hash_password(DEFAULT_ADMIN_PASSWORD)
         conn.execute(
             """
             INSERT INTO users (companyId, isPlatformAdmin, name, username, email, passwordHash, role, accessLevel, blocked, createdAt)
-            SELECT ?, 1, 'MASTER', 'master', 'master@oficina.local', ?, 'admin', 'administrador', 0, datetime('now')
+            SELECT ?, 1, ?, ?, ?, ?, 'admin', 'administrador', 0, datetime('now')
             WHERE NOT EXISTS (
-                SELECT 1 FROM users WHERE lower(email) = 'master@oficina.local'
+                SELECT 1 FROM users WHERE lower(email) = lower(?)
             )
             """,
-            (default_company_id, master_hash),
+            (
+                default_company_id,
+                DEFAULT_ADMIN_NAME,
+                DEFAULT_ADMIN_USERNAME,
+                DEFAULT_ADMIN_EMAIL,
+                master_hash,
+                DEFAULT_ADMIN_EMAIL,
+            ),
         )
         conn.execute(
             """
             UPDATE users
-            SET username = COALESCE(NULLIF(username, ''), 'master'),
+            SET username = COALESCE(NULLIF(username, ''), ?),
                 companyId = COALESCE(companyId, ?),
                 isPlatformAdmin = 1
-            WHERE lower(email) = 'master@oficina.local'
+            WHERE lower(email) = lower(?)
             """,
-            (default_company_id,),
+            (DEFAULT_ADMIN_USERNAME, default_company_id, DEFAULT_ADMIN_EMAIL),
         )
         conn.execute(
             """
             UPDATE companies
             SET ownerUserId = COALESCE(
                 ownerUserId,
-                (SELECT id FROM users WHERE lower(email) = 'master@oficina.local' LIMIT 1)
+                (SELECT id FROM users WHERE lower(email) = lower(?) LIMIT 1)
             )
             WHERE id = ?
             """,
-            (default_company_id,),
+            (DEFAULT_ADMIN_EMAIL, default_company_id),
         )
         conn.execute(
             """
@@ -2426,14 +2471,11 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    if APP_ENV == "production" and not DATABASE_URL:
-        raise RuntimeError("Produção exige DATABASE_URL com banco gerenciado. Use APP_ENV=staging para homologação.")
+    validate_runtime_config()
     init_db()
     prune_expired_sessions()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Ambiente: {APP_ENV}")
     print(f"Sistema rodando em http://{HOST}:{PORT}/")
     print(f"Banco SQLite: {DB_PATH}")
-    if DATABASE_URL:
-        print("DATABASE_URL configurado para migração futura.")
     server.serve_forever()
