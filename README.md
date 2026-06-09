@@ -51,11 +51,13 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Guia de deploy em `docs/DEPLOY.md`.
 - Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
 - Sessões persistidas no banco com hash do token, em vez de memória do processo.
+- Auditoria de tentativas de login com bloqueio temporário contra força bruta.
 - Headers básicos de segurança HTTP.
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Registro de baseline de schema em `schema_migrations`.
 - Snapshot auditável do schema em `migrations/20260609_web_saas_baseline.sqlite.sql`.
 - Baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
+- Migrações versionadas para sessões de banco e auditoria de login.
 - Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
 - CI no GitHub Actions para validar sintaxe, schema, preflight e smoke API.
 

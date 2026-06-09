@@ -10,6 +10,7 @@ REQUIRED_COLUMNS = {
     "companies": {"id", "name", "ownerUserId", "createdAt", "updatedAt"},
     "users": {"id", "companyId", "isPlatformAdmin", "email", "passwordHash", "role", "accessLevel", "blocked"},
     "user_sessions": {"id", "tokenHash", "userId", "expiresAt", "createdAt", "lastSeenAt"},
+    "login_audit": {"id", "login", "success", "reason", "ipAddress", "userAgent", "createdAt"},
     "budgets": {"id", "companyId", "userId", "clientName", "parts", "labor", "status", "approvedAt"},
     "customers": {"id", "companyId", "name", "email", "phone"},
     "vehicles": {"id", "companyId", "customerId", "plate", "brand", "model"},
@@ -23,7 +24,7 @@ REQUIRED_COLUMNS = {
     "schema_migrations": {"version", "appliedAt"},
 }
 
-REQUIRED_MIGRATIONS = {"20260609_web_saas_baseline", "20260609_db_sessions"}
+REQUIRED_MIGRATIONS = {"20260609_web_saas_baseline", "20260609_db_sessions", "20260609_login_audit"}
 
 
 def load_env_file(path):

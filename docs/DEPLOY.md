@@ -20,6 +20,9 @@ Variáveis principais:
 - `SQLITE_PATH`: caminho do SQLite enquanto estivermos em homologação.
 - `SESSION_TTL_SECONDS`: duração da sessão.
 - `PASSWORD_HASH_ITERATIONS`: custo do PBKDF2.
+- `LOGIN_MAX_ATTEMPTS`: quantidade de falhas permitidas na janela de segurança.
+- `LOGIN_WINDOW_SECONDS`: janela usada para contar falhas de login.
+- `LOGIN_LOCK_SECONDS`: tempo de bloqueio temporário após excesso de falhas.
 
 ## Estado atual
 
@@ -28,6 +31,7 @@ O sistema já possui:
 - Configuração por ambiente via `.env`.
 - Hash de senha com PBKDF2 e migração automática de hashes legados no login.
 - Sessões persistidas no banco com hash do token.
+- Auditoria de tentativas de login com IP, user-agent, motivo e bloqueio temporário por excesso de falhas.
 - Isolamento multiempresa por `companyId` nas rotas principais.
 - Planos comerciais e bloqueio de recursos por plano.
 - Painel Master com auditoria.
@@ -48,6 +52,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 - Rodar backup manual com `python scripts/backup_sqlite.py` antes de testes destrutivos.
 - Validar schema com `python scripts/validate_schema.py`.
 - Rodar smoke test com `python scripts/smoke_api.py`.
+- Testar bloqueio temporário de login com credenciais inválidas em usuário fictício.
 - Ativar HTTPS na plataforma.
 - Usar dados fictícios.
 - Testar login, multiempresa, planos, orçamento, OS, financeiro e estoque.

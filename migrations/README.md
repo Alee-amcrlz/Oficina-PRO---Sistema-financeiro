@@ -6,10 +6,13 @@ A partir desta etapa, o banco registra a versão:
 
 - `20260609_web_saas_baseline`
 - `20260609_db_sessions`
+- `20260609_login_audit`
 
 O arquivo `20260609_web_saas_baseline.sqlite.sql` é um snapshot auditável do schema SQLite atual.
 
 O arquivo `20260609_web_saas_baseline.postgres.sql` é a baseline inicial planejada para PostgreSQL gerenciado.
+
+As migrações incrementais atuais adicionam sessões persistidas no banco e auditoria de login.
 
 Use `python scripts/validate_schema.py` para conferir se o banco ativo tem as tabelas e colunas críticas.
 

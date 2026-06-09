@@ -43,6 +43,9 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = env_int("PORT", 4173)
 SESSION_TTL_SECONDS = env_int("SESSION_TTL_SECONDS", 8 * 60 * 60)
 PASSWORD_HASH_ITERATIONS = env_int("PASSWORD_HASH_ITERATIONS", 260000)
+LOGIN_MAX_ATTEMPTS = env_int("LOGIN_MAX_ATTEMPTS", 5)
+LOGIN_WINDOW_SECONDS = env_int("LOGIN_WINDOW_SECONDS", 15 * 60)
+LOGIN_LOCK_SECONDS = env_int("LOGIN_LOCK_SECONDS", 15 * 60)
 
 PLAN_CATALOG = {
     "essencial": {
@@ -278,6 +281,15 @@ SESSION_COLUMNS = [
     "lastSeenAt",
 ]
 
+LOGIN_AUDIT_COLUMNS = [
+    "login",
+    "success",
+    "reason",
+    "ipAddress",
+    "userAgent",
+    "createdAt",
+]
+
 
 def connect():
     conn = sqlite3.connect(DB_PATH)
@@ -425,6 +437,46 @@ def prune_expired_sessions():
         conn.execute("DELETE FROM user_sessions WHERE expiresAt < ?", (time.time(),))
 
 
+def is_login_locked(conn, login):
+    if not login:
+        return False
+    now = time.time()
+    since = now - LOGIN_WINDOW_SECONDS
+    rows = conn.execute(
+        """
+        SELECT success, createdAt
+        FROM login_audit
+        WHERE login = ? AND createdAt >= ?
+        ORDER BY createdAt DESC
+        LIMIT ?
+        """,
+        (login, since, LOGIN_MAX_ATTEMPTS),
+    ).fetchall()
+    if len(rows) < LOGIN_MAX_ATTEMPTS:
+        return False
+    if not all(not bool(row["success"]) for row in rows):
+        return False
+    latest_failure = float(rows[0]["createdAt"] or 0)
+    return latest_failure >= now - LOGIN_LOCK_SECONDS
+
+
+def record_login_attempt(conn, login, success, reason, ip_address="", user_agent=""):
+    conn.execute(
+        """
+        INSERT INTO login_audit (login, success, reason, ipAddress, userAgent, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(login or "").lower().strip(),
+            1 if success else 0,
+            str(reason or "").strip(),
+            str(ip_address or "").strip(),
+            str(user_agent or "").strip()[:500],
+            time.time(),
+        ),
+    )
+
+
 def is_platform_admin(user):
     return bool(user and user.get("isPlatformAdmin"))
 
@@ -532,6 +584,19 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(userId);
             CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expiresAt);
+
+            CREATE TABLE IF NOT EXISTS login_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                login TEXT NOT NULL,
+                success INTEGER NOT NULL DEFAULT 0,
+                reason TEXT,
+                ipAddress TEXT,
+                userAgent TEXT,
+                createdAt REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_login_audit_login_created ON login_audit(login, createdAt);
+            CREATE INDEX IF NOT EXISTS idx_login_audit_created ON login_audit(createdAt);
 
             CREATE TABLE IF NOT EXISTS budgets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -786,6 +851,12 @@ def init_db():
             """
             INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
             VALUES ('20260609_db_sessions', datetime('now'))
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
+            VALUES ('20260609_login_audit', datetime('now'))
             """
         )
 
@@ -1593,7 +1664,14 @@ class Handler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/auth/login":
                 login = str(payload.get("login") or "").lower().strip()
                 password = payload.get("password") or ""
+                ip_address = self.client_address[0] if self.client_address else ""
+                user_agent = self.headers.get("User-Agent", "")
                 with connect() as conn:
+                    if is_login_locked(conn, login):
+                        record_login_attempt(conn, login, False, "locked", ip_address, user_agent)
+                        self.send_json({"error": "Muitas tentativas inválidas. Aguarde alguns minutos antes de tentar novamente."}, 429)
+                        return
+
                     row = conn.execute(
                         """
                         SELECT
@@ -1619,6 +1697,8 @@ class Handler(SimpleHTTPRequestHandler):
                     ).fetchone()
 
                 if not row or not verify_password(password, row["passwordHash"]):
+                    with connect() as conn:
+                        record_login_attempt(conn, login, False, "invalid_credentials", ip_address, user_agent)
                     self.send_json({"error": "Usuário, e-mail ou senha inválidos."}, 401)
                     return
 
@@ -1631,9 +1711,13 @@ class Handler(SimpleHTTPRequestHandler):
 
                 user = row_to_user(row)
                 if user.get("blocked"):
+                    with connect() as conn:
+                        record_login_attempt(conn, login, False, "blocked_user", ip_address, user_agent)
                     self.send_json({"error": "Este usuário está bloqueado. Procure o administrador."}, 403)
                     return
 
+                with connect() as conn:
+                    record_login_attempt(conn, login, True, "success", ip_address, user_agent)
                 self.send_json({"user": user, "token": create_session(row["id"])})
                 return
 

@@ -13,6 +13,7 @@ TABLES = [
     "companies",
     "users",
     # Sessões ativas não são exportadas de propósito.
+    # Auditoria de login também não é exportada para evitar carregar IP/user-agent entre ambientes.
     "budgets",
     "customers",
     "vehicles",

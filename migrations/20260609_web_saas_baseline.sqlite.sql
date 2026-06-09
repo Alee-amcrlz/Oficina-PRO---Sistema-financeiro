@@ -1,8 +1,5 @@
--- Oficina Pro Web SaaS baseline schema
--- Generated from current homologation SQLite schema.
--- Version: 20260609_web_saas_baseline
-
-PRAGMA foreign_keys = ON;
+-- SQLite schema snapshot for Oficina Pro Web SaaS baseline.
+-- Generated from the local homologation database. Do not edit manually without updating migrations.
 
 -- table: accounts_payable
 CREATE TABLE accounts_payable (
@@ -86,6 +83,17 @@ CREATE TABLE customers (
                 notes TEXT,
                 createdAt TEXT,
                 updatedAt TEXT
+            );
+
+-- table: login_audit
+CREATE TABLE login_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                login TEXT NOT NULL,
+                success INTEGER NOT NULL DEFAULT 0,
+                reason TEXT,
+                ipAddress TEXT,
+                userAgent TEXT,
+                createdAt REAL NOT NULL
             );
 
 -- table: parts_inventory
@@ -194,6 +202,17 @@ CREATE TABLE suppliers (
                 updatedAt TEXT
             , companyId INTEGER);
 
+-- table: user_sessions
+CREATE TABLE user_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tokenHash TEXT NOT NULL UNIQUE,
+                userId INTEGER NOT NULL,
+                expiresAt REAL NOT NULL,
+                createdAt REAL NOT NULL,
+                lastSeenAt REAL NOT NULL,
+                FOREIGN KEY (userId) REFERENCES users(id)
+            );
+
 -- table: users
 CREATE TABLE users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,6 +278,12 @@ CREATE INDEX idx_customers_company ON customers(companyId);
 -- index: idx_customers_name
 CREATE INDEX idx_customers_name ON customers(name COLLATE NOCASE);
 
+-- index: idx_login_audit_created
+CREATE INDEX idx_login_audit_created ON login_audit(createdAt);
+
+-- index: idx_login_audit_login_created
+CREATE INDEX idx_login_audit_login_created ON login_audit(login, createdAt);
+
 -- index: idx_parts_inventory_code
 CREATE INDEX idx_parts_inventory_code ON parts_inventory(code);
 
@@ -309,6 +334,12 @@ CREATE INDEX idx_suppliers_corporate_name ON suppliers(corporateName COLLATE NOC
 
 -- index: idx_suppliers_trade_name
 CREATE INDEX idx_suppliers_trade_name ON suppliers(tradeName COLLATE NOCASE);
+
+-- index: idx_user_sessions_expires
+CREATE INDEX idx_user_sessions_expires ON user_sessions(expiresAt);
+
+-- index: idx_user_sessions_user
+CREATE INDEX idx_user_sessions_user ON user_sessions(userId);
 
 -- index: idx_users_company
 CREATE INDEX idx_users_company ON users(companyId);
