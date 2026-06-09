@@ -38,6 +38,21 @@ O banco já possui uma base inicial para multiempresa: a tabela `companies` e o 
 
 Este banco local está sendo usado como ambiente de homologação. Ele pode receber testes de migração, autenticação, multiempresa, assinaturas e painel master antes de qualquer ambiente de produção.
 
+Para produção comercial SaaS, a recomendação técnica é migrar para PostgreSQL gerenciado. Consulte `docs/POSTGRESQL.md`.
+
+## Preparação para nuvem
+
+- Configuração por ambiente via `.env`.
+- Exemplo de configuração em `.env.example`.
+- `Dockerfile` e `Procfile` para deploy inicial.
+- Preflight técnico em `python scripts/preflight.py`.
+- Backup SQLite de homologação em `python scripts/backup_sqlite.py`.
+- Guia de deploy em `docs/DEPLOY.md`.
+- Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
+- Headers básicos de segurança HTTP.
+- Smoke tests de API em `python scripts/smoke_api.py`.
+- Registro de baseline de schema em `schema_migrations`.
+
 ## Recursos incluidos
 
 - Tela de login e cadastro de usuários.
@@ -47,10 +62,18 @@ Este banco local está sendo usado como ambiente de homologação. Ele pode rece
 - Senhas armazenadas com hash SHA-256.
 - A opção de lembrar acesso salva apenas o usuário/e-mail, não a senha.
 - Cadastro de cliente, e-mail, telefone, endereço, veículo, placa, peças, mão de obra e observações.
+- Cadastro central de clientes e veículos para histórico operacional.
+- Orçamento pode reutilizar cliente e veículo já cadastrados.
+- Seleção de veículo no orçamento também preenche automaticamente o proprietário.
+- Busca automática por e-mail, telefone ou placa para evitar redigitação.
 - Lançamento separado de peças com quantidade, descrição e valor unitário.
 - Lançamento separado de mão de obra com descrição e valor.
 - Resumo automático de total em peças, total em mão de obra e total do orçamento.
 - Menu Atendimento com Orçamentos, Novo orçamento, Aprovados, Reprovados e Pendentes.
+- Menu Atendimento com Clientes e veículos.
+- Menu Atendimento com Ordens de serviço.
+- Geração de ordem de serviço a partir de orçamento aprovado.
+- Acompanhamento de OS por status: aberta, em andamento, aguardando peça, concluída e entregue.
 - Menu Financeiro com Contas à pagar, Tabela de custos e Fluxo de caixa.
 - Visualização de orçamentos aprovados diretamente no fluxo de caixa.
 - Edição de orçamento aprovado com retorno automático para pendente e nova aprovação.
@@ -73,4 +96,16 @@ Este banco local está sendo usado como ambiente de homologação. Ele pode rece
 - Ações administrativas no Painel Master para atualizar assinatura e registrar pagamento manual.
 - Filtros no Painel Master por status, plano e busca por oficina.
 - Auditoria master para registrar criação de oficina, alteração de assinatura e lançamento de pagamento.
+- Catálogo comercial de planos: Essencial, Profissional e Premium.
+- Ciclos de cobrança: mensal, trimestral e anual.
+- Regras de acesso por plano aplicadas no frontend e backend.
+- Resumo "Minha assinatura" no painel do cliente.
 - Painel Master não exibe faturamento operacional das oficinas por padrão; acesso a valores da oficina fica reservado para suporte autorizado e auditável.
+
+## Planos em homologação
+
+| Plano | Indicação | Recursos principais | Usuários | Mensal | Trimestral | Anual |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Essencial | Oficina pequena começando a organizar atendimento | Painel e orçamentos | 1 | R$ 59,00 | R$ 159,00 | R$ 549,00 |
+| Profissional | Plano principal para operação completa | Orçamentos, financeiro, estoque e usuários | 5 | R$ 99,00 | R$ 267,00 | R$ 949,00 |
+| Premium | Operação maior ou gestão avançada | Recursos do Profissional, mais usuários, relatórios avançados e suporte prioritário | 15 | R$ 149,00 | R$ 402,00 | R$ 1.399,00 |

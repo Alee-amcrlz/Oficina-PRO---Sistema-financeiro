@@ -774,6 +774,65 @@ select:focus {
   grid-column: 1 / -1;
 }
 
+.subscription-summary {
+  margin-bottom: 18px;
+}
+
+.subscription-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.subscription-grid div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+.subscription-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.subscription-grid strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.plan-warning {
+  margin-top: 14px;
+}
+
+.compact-select {
+  min-width: 150px;
+  min-height: 34px;
+  padding: 6px 8px;
+  font-size: 0.82rem;
+}
+
 .platform-filters {
   display: grid;
   grid-template-columns: minmax(160px, 210px) minmax(160px, 210px) minmax(220px, 1fr) auto;
@@ -1282,6 +1341,7 @@ tbody tr:hover {
   .metrics,
   .totals-box,
   .detail-grid,
+  .subscription-grid,
   .platform-filters,
   .permission-grid {
     grid-template-columns: 1fr;

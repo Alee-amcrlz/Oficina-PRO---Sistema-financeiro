@@ -36,6 +36,8 @@ const VIEW_TITLES = {
   dashboardView: "Painel",
   platformView: "Painel Master",
   budgetView: "Atendimento / Orçamentos",
+  customersView: "Atendimento / Clientes e veículos",
+  serviceOrdersView: "Atendimento / Ordens de serviço",
   billingView: "Financeiro / Fluxo de caixa",
   accountsPayableView: "Financeiro / Contas à pagar",
   costTableView: "Financeiro / Tabela de custos",
@@ -45,9 +47,24 @@ const VIEW_TITLES = {
 const REMEMBER_LOGIN_KEY = "oficina_remember_login";
 const UI_PREFERENCES_KEY = "oficina_ui_preferences";
 const SESSION_TOKEN_KEY = "oficina_session_token";
+const PLAN_FEATURE_BY_PERMISSION = {
+  dashboard_view: "dashboard",
+  budgets_view: "budgets",
+  budgets_manage: "budgets",
+  budgets_approve: "budgets",
+  budgets_delete: "budgets",
+  billing_view: "billing",
+  billing_edit: "billing",
+  inventory_view: "inventory",
+  inventory_manage: "inventory",
+  settings: "users"
+};
 
 let currentUser = null;
 let budgets = [];
+let customers = [];
+let vehicles = [];
+let serviceOrders = [];
 let inventoryParts = [];
 let suppliers = [];
 let payables = [];
@@ -55,6 +72,8 @@ let platformCompanies = [];
 let platformSubscriptions = [];
 let platformPayments = [];
 let platformAudit = [];
+let planCatalog = {};
+let billingCycles = {};
 let selectedInventoryPartId = null;
 let selectedSupplierId = null;
 let users = [];
@@ -62,6 +81,8 @@ let editingUserId = null;
 let accessLevelsState = { ...DEFAULT_ACCESS_LEVELS };
 let permissionsState = structuredClone(DEFAULT_PERMISSIONS);
 let editingBudgetId = null;
+let editingCustomerId = null;
+let editingVehicleId = null;
 let selectedBudgetId = null;
 let compactBudgetList = false;
 let lastZipLookup = "";
@@ -154,6 +175,48 @@ async function deleteBudget(id) {
   return api(`/budgets/${Number(id)}`, { method: "DELETE" });
 }
 
+async function createCustomer(customer) {
+  return api("/customers", {
+    method: "POST",
+    body: JSON.stringify(customer)
+  });
+}
+
+async function updateCustomer(customer) {
+  return api(`/customers/${Number(customer.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(customer)
+  });
+}
+
+async function createVehicle(vehicle) {
+  return api("/vehicles", {
+    method: "POST",
+    body: JSON.stringify(vehicle)
+  });
+}
+
+async function updateVehicle(vehicle) {
+  return api(`/vehicles/${Number(vehicle.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(vehicle)
+  });
+}
+
+async function createServiceOrderFromBudget(budgetId) {
+  return api("/service-orders/from-budget", {
+    method: "POST",
+    body: JSON.stringify({ budgetId: Number(budgetId) })
+  });
+}
+
+async function updateServiceOrder(serviceOrder) {
+  return api(`/service-orders/${Number(serviceOrder.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(serviceOrder)
+  });
+}
+
 async function createInventoryPart(part) {
   return api("/parts", {
     method: "POST",
@@ -211,6 +274,26 @@ async function loadPlatformAudit() {
   platformAudit = await api("/platform/audit?limit=30");
 }
 
+async function loadPlanCatalog() {
+  const data = await api("/plans");
+  planCatalog = Object.fromEntries((data.plans || []).map((plan) => [plan.code, plan]));
+  billingCycles = data.billingCycles || {};
+}
+
+async function loadCurrentSubscription() {
+  const subscription = await api("/subscription/current");
+  currentUser = {
+    ...currentUser,
+    subscriptionStatus: subscription.status,
+    plan: subscription.plan,
+    currentPeriodStart: subscription.currentPeriodStart,
+    currentPeriodEnd: subscription.currentPeriodEnd,
+    trialEndsAt: subscription.trialEndsAt
+  };
+  sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
+  renderSubscriptionSummary();
+}
+
 async function loadBudgets() {
   const all = await api("/budgets");
   const visibleBudgets = canAccess("billing_view")
@@ -220,6 +303,18 @@ async function loadBudgets() {
   budgets = visibleBudgets
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   renderAll();
+}
+
+async function loadCustomers() {
+  customers = await api("/customers");
+  vehicles = await api("/vehicles");
+  renderBudgetCustomerOptions();
+  renderCustomersView();
+}
+
+async function loadServiceOrders() {
+  serviceOrders = await api("/service-orders");
+  renderServiceOrdersView();
 }
 
 async function loadInventoryParts() {
@@ -346,13 +441,23 @@ async function showApp() {
     : currentUser.name;
   applyUiPreferences();
   startSidebarClock();
+  await loadPlanCatalog();
+  await loadCurrentSubscription();
   await loadSettings();
   applyNavigationPermissions();
   setPageTitle("Painel");
-  loadInventoryParts();
-  loadSuppliers();
-  loadPayables();
-  loadBudgets();
+  if (canAccess("inventory")) {
+    loadInventoryParts();
+    loadSuppliers();
+  }
+  if (canAccess("billing")) {
+    loadPayables();
+  }
+  if (canAccess("budgets")) {
+    loadBudgets();
+    loadCustomers();
+    loadServiceOrders();
+  }
   if (canAccess("platform")) {
     loadPlatformDashboard();
   }
@@ -442,6 +547,14 @@ function switchView(viewId) {
   if (viewId === "platformView") {
     loadPlatformDashboard();
   }
+
+  if (viewId === "customersView") {
+    loadCustomers();
+  }
+
+  if (viewId === "serviceOrdersView") {
+    loadServiceOrders();
+  }
 }
 
 function currentAccessLevel() {
@@ -451,7 +564,28 @@ function currentAccessLevel() {
 }
 
 function isMasterUser() {
-  return currentUser?.role === "admin";
+  return Boolean(currentUser?.isPlatformAdmin);
+}
+
+function currentPlan() {
+  return currentUser?.plan || planCatalog[currentUser?.subscriptionPlan] || planCatalog.trial || {
+    code: "trial",
+    name: "Teste",
+    features: ["dashboard", "budgets"],
+    limits: { users: 1 },
+    prices: {}
+  };
+}
+
+function subscriptionAllowsWrite() {
+  if (currentUser?.isPlatformAdmin) return true;
+  return ["trial", "active"].includes(currentUser?.subscriptionStatus);
+}
+
+function planAllows(feature) {
+  if (currentUser?.isPlatformAdmin) return true;
+  const mapped = PLAN_FEATURE_BY_PERMISSION[feature] || FEATURE_ALIASES[feature] || feature;
+  return (currentPlan().features || []).includes(mapped);
 }
 
 function accessLevelsConfig() {
@@ -515,9 +649,11 @@ function savePermissionsConfig(config) {
 function canAccess(feature) {
   if (!currentUser) return false;
   if (feature === "platform") return Boolean(currentUser.isPlatformAdmin);
+  if (!planAllows(feature)) return false;
   if (feature === "settings") return currentUser.role === "admin";
   if (currentUser.role === "admin") return true;
   const normalizedFeature = FEATURE_ALIASES[feature] || feature;
+  if (!planAllows(normalizedFeature)) return false;
   return permissionsConfig()[currentAccessLevel()]?.includes(normalizedFeature) || false;
 }
 
@@ -528,6 +664,10 @@ function canApproveBudget(budget) {
 
 function canDeleteBudget(budget) {
   return Boolean(budget) && canAccess("budgets_delete");
+}
+
+function canGenerateServiceOrder(budget) {
+  return Boolean(budget) && budget.status === STATUS.approved && canAccess("budgets_manage");
 }
 
 function firstAllowedView() {
@@ -630,6 +770,28 @@ function budgetAddressText(budget) {
     budget.clientState,
     budget.clientZip && `CEP ${budget.clientZip}`
   ].filter(Boolean).join(" - ") || "Não informado";
+}
+
+function serviceOrderStatusLabel(status) {
+  const labels = {
+    aberta: "aberta",
+    em_andamento: "em andamento",
+    aguardando_peca: "aguardando peça",
+    concluida: "concluída",
+    entregue: "entregue"
+  };
+  return labels[status] || status || "aberta";
+}
+
+function serviceOrderBadgeClass(status) {
+  if (status === "concluida" || status === "entregue") return "aprovado";
+  if (status === "em_andamento") return "trial";
+  if (status === "aguardando_peca") return "pendente";
+  return "neutral";
+}
+
+function serviceOrderVehicleTitle(order) {
+  return [order.vehicleBrand, order.vehicleModel].filter(Boolean).join(" ") || "Veículo não informado";
 }
 
 function formatZip(value) {
@@ -798,6 +960,8 @@ function renderAll() {
   renderMetrics();
   renderRecentBudgets();
   renderBudgetList();
+  renderCustomersView();
+  renderServiceOrdersView();
   renderInventoryPartsTable();
   renderBilling();
 }
@@ -906,6 +1070,70 @@ function formatOptionalDate(value) {
   return dateFormat.format(date);
 }
 
+function planFeatureLabel(feature) {
+  const labels = {
+    dashboard: "Painel",
+    budgets: "Orçamentos",
+    billing: "Financeiro",
+    inventory: "Estoque",
+    users: "Usuários",
+    advanced_reports: "Relatórios avançados",
+    priority_support: "Suporte prioritário"
+  };
+  return labels[feature] || feature;
+}
+
+function renderSubscriptionSummary() {
+  const container = $("#subscriptionSummary");
+  if (!container || !currentUser || currentUser.isPlatformAdmin) {
+    if (container) container.classList.add("hidden");
+    return;
+  }
+
+  const plan = currentPlan();
+  const status = currentUser.subscriptionStatus || "trial";
+  const blocked = !subscriptionAllowsWrite();
+  const periodEnd = currentUser.currentPeriodEnd || currentUser.trialEndsAt;
+  const features = (plan.features || [])
+    .map((feature) => `<span class="chip">${escapeHtml(planFeatureLabel(feature))}</span>`)
+    .join("");
+
+  container.classList.remove("hidden");
+  container.innerHTML = `
+    <div class="panel-head">
+      <div>
+        <h2>Minha assinatura</h2>
+        <p class="muted">${escapeHtml(plan.description || "Plano atual da oficina.")}</p>
+      </div>
+      <span class="badge ${subscriptionBadgeClass(status)}">${escapeHtml(subscriptionLabel(status))}</span>
+    </div>
+    <div class="subscription-grid">
+      <div>
+        <span>Plano</span>
+        <strong>${escapeHtml(plan.name || plan.code)}</strong>
+      </div>
+      <div>
+        <span>Ciclo</span>
+        <strong>${escapeHtml(plan.billingCycleLabel || billingCycles[plan.billingCycle] || "Mensal")}</strong>
+      </div>
+      <div>
+        <span>Valor</span>
+        <strong>${currency.format(Number(plan.currentPrice || 0))}</strong>
+      </div>
+      <div>
+        <span>Usuários</span>
+        <strong>Até ${escapeHtml(plan.limits?.users || 1)}</strong>
+      </div>
+      <div>
+        <span>Próximo marco</span>
+        <strong>${formatOptionalDate(periodEnd)}</strong>
+      </div>
+    </div>
+    <div class="chip-list">${features}</div>
+    ${blocked ? '<p class="message plan-warning">Assinatura irregular. Você pode consultar dados, mas alterações ficam bloqueadas até regularização.</p>' : ""}
+  `;
+}
+
 function renderPlatformDashboard() {
   if (!canAccess("platform")) return;
 
@@ -959,6 +1187,7 @@ function fillPlatformSubscriptionForm(company) {
   if (!company) return;
   $("#platformSubscriptionCompany").value = company.id;
   $("#platformSubscriptionPlan").value = company.plan || "trial";
+  $("#platformSubscriptionBillingCycle").value = company.billingCycle || "monthly";
   $("#platformSubscriptionStatus").value = company.subscriptionStatus || "trial";
   $("#platformPeriodStart").value = dateInputValue(company.currentPeriodStart);
   $("#platformPeriodEnd").value = dateInputValue(company.currentPeriodEnd);
@@ -1011,6 +1240,7 @@ function renderPlatformCompaniesTable() {
         <span class="muted">ID ${escapeHtml(company.id)}</span>
       </td>
       <td>${escapeHtml(company.plan || "Não definido")}</td>
+      <td>${escapeHtml(billingCycles[company.billingCycle] || "Mensal")}</td>
       <td><span class="badge ${subscriptionBadgeClass(company.subscriptionStatus)}">${escapeHtml(subscriptionLabel(company.subscriptionStatus))}</span></td>
       <td>${escapeHtml(company.userCount || 0)}</td>
       <td>${escapeHtml(company.budgetCount || 0)}</td>
@@ -1026,6 +1256,7 @@ function renderPlatformCompaniesTable() {
         <tr>
           <th>Oficina</th>
           <th>Plano</th>
+          <th>Ciclo</th>
           <th>Status</th>
           <th>Usuários</th>
           <th>Orçamentos</th>
@@ -1140,6 +1371,271 @@ function clearPlatformCompanyForm() {
   setMessage($("#platformCompanyMessage"), "");
 }
 
+function renderCustomerOptions() {
+  const select = $("#vehicleCustomer");
+  if (!select) return;
+  const currentValue = select.value;
+  select.innerHTML = customers.map((customer) => `
+    <option value="${customer.id}">${escapeHtml(customer.name)}${customer.phone ? ` - ${escapeHtml(customer.phone)}` : ""}</option>
+  `).join("") || '<option value="">Cadastre um cliente primeiro</option>';
+  if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+function renderBudgetCustomerOptions() {
+  const customerSelect = $("#budgetCustomerSelect");
+  const vehicleSelect = $("#budgetVehicleSelect");
+  if (!customerSelect || !vehicleSelect) return;
+
+  const currentCustomer = customerSelect.value;
+  customerSelect.innerHTML = '<option value="">Novo cliente ou busca manual</option>' + customers.map((customer) => `
+    <option value="${customer.id}">${escapeHtml(customer.name)}${customer.phone ? ` - ${escapeHtml(customer.phone)}` : ""}</option>
+  `).join("");
+  if (currentCustomer && Array.from(customerSelect.options).some((option) => option.value === currentCustomer)) {
+    customerSelect.value = currentCustomer;
+  }
+
+  renderBudgetVehicleOptions();
+}
+
+function renderBudgetVehicleOptions(customerId = $("#budgetCustomerSelect")?.value || "") {
+  const vehicleSelect = $("#budgetVehicleSelect");
+  if (!vehicleSelect) return;
+  const currentVehicle = vehicleSelect.value;
+  const scopedVehicles = customerId
+    ? vehicles.filter((vehicle) => Number(vehicle.customerId) === Number(customerId))
+    : vehicles;
+
+  vehicleSelect.innerHTML = '<option value="">Novo veículo ou busca manual</option>' + scopedVehicles.map((vehicle) => `
+    <option value="${vehicle.id}">${escapeHtml(vehicle.plate || "Sem placa")} - ${escapeHtml([vehicle.brand, vehicle.model].filter(Boolean).join(" ") || "Veículo")}</option>
+  `).join("");
+  if (currentVehicle && Array.from(vehicleSelect.options).some((option) => option.value === currentVehicle)) {
+    vehicleSelect.value = currentVehicle;
+  }
+}
+
+function fillBudgetCustomerFields(customer) {
+  if (!customer) return;
+  $("#clientName").value = customer.name || "";
+  $("#clientEmail").value = customer.email || "";
+  $("#clientPhone").value = customer.phone || "";
+  $("#clientZip").value = customer.zip || "";
+  $("#clientStreet").value = customer.street || "";
+  $("#clientNumber").value = customer.number || "";
+  $("#clientDistrict").value = customer.district || "";
+  $("#clientState").value = customer.state || "";
+}
+
+function fillBudgetVehicleFields(vehicle) {
+  if (!vehicle) return;
+  $("#vehicleBrand").value = vehicle.brand || "";
+  $("#vehicleModel").value = vehicle.model || "";
+  $("#vehicleYear").value = vehicle.year || "";
+  $("#plate").value = vehicle.plate || "";
+  $("#vehicleColor").value = vehicle.color || "";
+  $("#vehicleKm").value = vehicle.km || "";
+  if (vehicle.customerId) {
+    $("#budgetCustomerSelect").value = vehicle.customerId;
+    renderBudgetVehicleOptions(vehicle.customerId);
+    $("#budgetVehicleSelect").value = vehicle.id;
+    const customer = customers.find((item) => Number(item.id) === Number(vehicle.customerId));
+    fillBudgetCustomerFields(customer);
+  }
+}
+
+function findCustomerByContact() {
+  const email = $("#clientEmail").value.toLowerCase().trim();
+  const phone = $("#clientPhone").value.trim();
+  return customers.find((customer) => (
+    (email && String(customer.email || "").toLowerCase() === email)
+    || (phone && String(customer.phone || "") === phone)
+  ));
+}
+
+function findVehicleByPlateInput() {
+  const plate = $("#plate").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return vehicles.find((vehicle) => String(vehicle.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") === plate);
+}
+
+function renderCustomersTable() {
+  const container = $("#customersTable");
+  if (!container) return;
+  if (!customers.length) {
+    container.innerHTML = '<p class="empty">Nenhum cliente cadastrado ainda.</p>';
+    return;
+  }
+
+  const rows = customers.map((customer) => `
+    <tr>
+      <td><button class="table-link" data-action="edit-customer" data-id="${customer.id}">${escapeHtml(customer.name)}</button></td>
+      <td>${escapeHtml(customer.phone || "Não informado")}</td>
+      <td>${escapeHtml(customer.email || "Não informado")}</td>
+      <td>${escapeHtml(customer.vehicleCount || 0)}</td>
+      <td>${escapeHtml(customer.serviceOrderCount || 0)}</td>
+      <td>${escapeHtml([customer.street, customer.number, customer.district, customer.state].filter(Boolean).join(", ") || "Não informado")}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Telefone</th>
+          <th>E-mail</th>
+          <th>Veículos</th>
+          <th>OS</th>
+          <th>Endereço</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderVehiclesTable() {
+  const container = $("#vehiclesTable");
+  if (!container) return;
+  if (!vehicles.length) {
+    container.innerHTML = '<p class="empty">Nenhum veículo cadastrado ainda.</p>';
+    return;
+  }
+
+  const rows = vehicles.map((vehicle) => `
+    <tr>
+      <td><button class="table-link" data-action="edit-vehicle" data-id="${vehicle.id}">${escapeHtml(vehicle.plate || "Sem placa")}</button></td>
+      <td>${escapeHtml([vehicle.brand, vehicle.model].filter(Boolean).join(" ") || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.year || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.color || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.km || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.customerName || "Não informado")}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Placa</th>
+          <th>Veículo</th>
+          <th>Ano</th>
+          <th>Cor</th>
+          <th>KM</th>
+          <th>Cliente</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderCustomersView() {
+  renderCustomerOptions();
+  renderBudgetCustomerOptions();
+  renderCustomersTable();
+  renderVehiclesTable();
+}
+
+function clearCustomerForm() {
+  editingCustomerId = null;
+  $("#customerForm")?.reset();
+  $("#customerFormTitle").textContent = "Cadastrar cliente";
+  setMessage($("#customerMessage"), "");
+}
+
+function fillCustomerForm(customer) {
+  editingCustomerId = customer.id;
+  $("#customerFormTitle").textContent = "Editar cliente";
+  $("#customerName").value = customer.name || "";
+  $("#customerPhone").value = customer.phone || "";
+  $("#customerEmail").value = customer.email || "";
+  $("#customerZip").value = customer.zip || "";
+  $("#customerStreet").value = customer.street || "";
+  $("#customerNumber").value = customer.number || "";
+  $("#customerDistrict").value = customer.district || "";
+  $("#customerState").value = customer.state || "";
+  $("#customerNotes").value = customer.notes || "";
+  setMessage($("#customerMessage"), "");
+}
+
+function clearVehicleForm() {
+  editingVehicleId = null;
+  $("#vehicleForm")?.reset();
+  $("#vehicleFormTitle").textContent = "Cadastrar veículo";
+  renderCustomerOptions();
+  setMessage($("#vehicleMessage"), "");
+}
+
+function fillVehicleForm(vehicle) {
+  editingVehicleId = vehicle.id;
+  $("#vehicleFormTitle").textContent = "Editar veículo";
+  renderCustomerOptions();
+  $("#vehicleCustomer").value = vehicle.customerId || "";
+  $("#customerVehicleBrand").value = vehicle.brand || "";
+  $("#customerVehicleModel").value = vehicle.model || "";
+  $("#customerVehicleYear").value = vehicle.year || "";
+  $("#customerVehiclePlate").value = vehicle.plate || "";
+  $("#customerVehicleColor").value = vehicle.color || "";
+  $("#customerVehicleKm").value = vehicle.km || "";
+  $("#vehicleNotes").value = vehicle.notes || "";
+  setMessage($("#vehicleMessage"), "");
+}
+
+function renderServiceOrdersView() {
+  const container = $("#serviceOrdersTable");
+  if (!container) return;
+  const filter = $("#serviceOrderStatusFilter")?.value || "todos";
+  const filtered = filter === "todos"
+    ? serviceOrders
+    : serviceOrders.filter((order) => order.status === filter);
+
+  if (!filtered.length) {
+    container.innerHTML = '<p class="empty">Nenhuma ordem de serviço para este filtro.</p>';
+    return;
+  }
+
+  const statusOptions = ["aberta", "em_andamento", "aguardando_peca", "concluida", "entregue"];
+  const rows = filtered.map((order) => `
+    <tr>
+      <td><strong>${escapeHtml(order.number)}</strong><br><span class="muted">Orçamento ${escapeHtml(order.budgetId || "manual")}</span></td>
+      <td>${escapeHtml(order.customerName || "Cliente")}</td>
+      <td>${escapeHtml(serviceOrderVehicleTitle(order))}<br><span class="muted">${escapeHtml(order.vehiclePlate || "")}</span></td>
+      <td>
+        <span class="badge ${serviceOrderBadgeClass(order.status)}">${escapeHtml(serviceOrderStatusLabel(order.status))}</span>
+      </td>
+      <td>${escapeHtml(order.priority || "normal")}</td>
+      <td>${formatOptionalDate(order.entryDate)}</td>
+      <td>${formatOptionalDate(order.expectedDeliveryDate)}</td>
+      <td>${currency.format(Number(order.totalAmount || 0))}</td>
+      <td>
+        <select class="compact-select" data-action="change-service-order-status" data-id="${order.id}">
+          ${statusOptions.map((status) => `<option value="${status}" ${order.status === status ? "selected" : ""}>${serviceOrderStatusLabel(status)}</option>`).join("")}
+        </select>
+      </td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>OS</th>
+          <th>Cliente</th>
+          <th>Veículo</th>
+          <th>Status</th>
+          <th>Prioridade</th>
+          <th>Entrada</th>
+          <th>Previsão</th>
+          <th>Total</th>
+          <th>Atualizar</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
 function renderBudgetList() {
   const filter = $("#statusFilter").value;
   const search = ($("#budgetSearch")?.value || "").toLowerCase().trim();
@@ -1182,6 +1678,7 @@ function renderBudgetList() {
               <button class="action success" data-action="approve" data-id="${budget.id}">Aprovar</button>
               <button class="action danger" data-action="reject" data-id="${budget.id}">Reprovar</button>
             ` : ""}
+            ${canGenerateServiceOrder(budget) ? `<button class="action success" data-action="create-os" data-id="${budget.id}">Gerar OS</button>` : ""}
             ${canDeleteBudget(budget) ? `<button class="action danger" data-action="delete" data-id="${budget.id}">Excluir</button>` : ""}
           </div>
         </td>
@@ -1234,6 +1731,7 @@ function renderBudgetList() {
           <button class="action success" data-action="approve" data-id="${budget.id}">Aprovar</button>
           <button class="action danger" data-action="reject" data-id="${budget.id}">Reprovar</button>
         ` : ""}
+        ${canGenerateServiceOrder(budget) ? `<button class="action success" data-action="create-os" data-id="${budget.id}">Gerar OS</button>` : ""}
         ${canDeleteBudget(budget) ? `<button class="action danger" data-action="delete" data-id="${budget.id}">Excluir</button>` : ""}
       </div>
     </article>
@@ -1861,6 +2359,17 @@ async function removeBudget(id) {
   closeBudgetModal();
 }
 
+async function generateServiceOrderFromBudget(budget) {
+  if (!canGenerateServiceOrder(budget)) return;
+  const order = await createServiceOrderFromBudget(budget.id);
+  await Promise.all([loadCustomers(), loadServiceOrders()]);
+  closeBudgetModal();
+  switchView("serviceOrdersView");
+  markParentMenu("budgets");
+  setPageTitle("Atendimento / Ordens de serviço");
+  alert(`Ordem de serviço ${order.number} gerada para ${budget.clientName}.`);
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -2088,6 +2597,7 @@ function setFormMode(budget = null) {
 
 function clearBudgetForm() {
   $("#budgetForm").reset();
+  renderBudgetCustomerOptions();
   setAddressLookupState("");
   lastZipLookup = "";
   resetBudgetItems();
@@ -2095,6 +2605,8 @@ function clearBudgetForm() {
 }
 
 function loadBudgetIntoForm(budget) {
+  $("#budgetCustomerSelect").value = "";
+  $("#budgetVehicleSelect").value = "";
   $("#clientName").value = budget.clientName || "";
   $("#clientEmail").value = budget.clientEmail || "";
   $("#clientPhone").value = budget.clientPhone || "";
@@ -2140,6 +2652,7 @@ function openBudgetModal(budget) {
   $("#modalEditButton").classList.toggle("hidden", !(canAccess("budgets_manage") || canAccess("billing_edit")));
   $("#modalApproveButton").classList.toggle("hidden", !canApproveBudget(budget));
   $("#modalRejectButton").classList.toggle("hidden", !canApproveBudget(budget));
+  $("#modalCreateOsButton").classList.toggle("hidden", !canGenerateServiceOrder(budget));
   $("#modalDeleteButton").classList.toggle("hidden", !canDeleteBudget(budget));
   $("#budgetModal").classList.remove("hidden");
 }
@@ -2199,6 +2712,12 @@ function openBudgetSection(section, sourceElement = null) {
   $("#budgetLayout").classList.toggle("list-only", !showCreateForm);
   $("#budgetLayout").classList.toggle("form-only", showCreateForm);
   renderBudgetList();
+  suppressClickedSubmenu(sourceElement);
+}
+
+function openOperationsView(viewId, sourceElement = null) {
+  switchView(viewId);
+  markParentMenu("budgets");
   suppressClickedSubmenu(sourceElement);
 }
 
@@ -2322,6 +2841,7 @@ function bindEvents() {
       await updatePlatformSubscription({
         id: company.subscriptionId,
         plan: $("#platformSubscriptionPlan").value,
+        billingCycle: $("#platformSubscriptionBillingCycle").value,
         status: $("#platformSubscriptionStatus").value,
         currentPeriodStart: $("#platformPeriodStart").value,
         currentPeriodEnd: $("#platformPeriodEnd").value,
@@ -2373,6 +2893,7 @@ function bindEvents() {
       document: $("#platformCompanyDocument").value.trim(),
       phone: $("#platformCompanyPhone").value.trim(),
       plan: $("#platformCompanyPlan").value,
+      billingCycle: $("#platformCompanyBillingCycle").value,
       status: $("#platformCompanyStatus").value,
       ownerName: $("#platformOwnerName").value.trim(),
       ownerEmail: $("#platformOwnerEmail").value.toLowerCase().trim(),
@@ -2415,10 +2936,102 @@ function bindEvents() {
   $("#cancelEditButton").addEventListener("click", clearBudgetForm);
   $("#statusFilter").addEventListener("change", renderBudgetList);
   $("#budgetSearch").addEventListener("input", renderBudgetList);
+  $("#budgetCustomerSelect")?.addEventListener("change", (event) => {
+    const customerId = event.target.value;
+    const customer = customers.find((item) => Number(item.id) === Number(customerId));
+    fillBudgetCustomerFields(customer);
+    $("#budgetVehicleSelect").value = "";
+    renderBudgetVehicleOptions(customerId);
+  });
+  $("#budgetVehicleSelect")?.addEventListener("change", (event) => {
+    const vehicle = vehicles.find((item) => Number(item.id) === Number(event.target.value));
+    fillBudgetVehicleFields(vehicle);
+  });
+  $("#serviceOrderStatusFilter")?.addEventListener("change", renderServiceOrdersView);
+  $("#clearCustomerFormButton")?.addEventListener("click", clearCustomerForm);
+  $("#clearVehicleFormButton")?.addEventListener("click", clearVehicleForm);
+  $("#customerForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("budgets_manage")) return;
+    const payload = {
+      id: editingCustomerId,
+      name: $("#customerName").value.trim(),
+      phone: $("#customerPhone").value.trim(),
+      email: $("#customerEmail").value.toLowerCase().trim(),
+      zip: $("#customerZip").value.trim(),
+      street: $("#customerStreet").value.trim(),
+      number: $("#customerNumber").value.trim(),
+      district: $("#customerDistrict").value.trim(),
+      state: $("#customerState").value.toUpperCase().trim(),
+      notes: $("#customerNotes").value.trim()
+    };
+    try {
+      editingCustomerId ? await updateCustomer(payload) : await createCustomer(payload);
+      clearCustomerForm();
+      setMessage($("#customerMessage"), "Cliente salvo com sucesso.", true);
+      await loadCustomers();
+    } catch (error) {
+      setMessage($("#customerMessage"), error.message);
+    }
+  });
+  $("#vehicleForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("budgets_manage")) return;
+    const payload = {
+      id: editingVehicleId,
+      customerId: Number($("#vehicleCustomer").value || 0),
+      brand: $("#customerVehicleBrand").value.trim(),
+      model: $("#customerVehicleModel").value.trim(),
+      year: $("#customerVehicleYear").value.trim(),
+      plate: $("#customerVehiclePlate").value.toUpperCase().trim(),
+      color: $("#customerVehicleColor").value.trim(),
+      km: $("#customerVehicleKm").value.trim(),
+      notes: $("#vehicleNotes").value.trim()
+    };
+    try {
+      editingVehicleId ? await updateVehicle(payload) : await createVehicle(payload);
+      clearVehicleForm();
+      setMessage($("#vehicleMessage"), "Veículo salvo com sucesso.", true);
+      await loadCustomers();
+    } catch (error) {
+      setMessage($("#vehicleMessage"), error.message);
+    }
+  });
+  $("#customersTable")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    if (button.dataset.action === "edit-customer") {
+      const customer = customers.find((item) => Number(item.id) === Number(button.dataset.id));
+      if (customer) fillCustomerForm(customer);
+    }
+  });
+  $("#vehiclesTable")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    if (button.dataset.action === "edit-vehicle") {
+      const vehicle = vehicles.find((item) => Number(item.id) === Number(button.dataset.id));
+      if (vehicle) fillVehicleForm(vehicle);
+    }
+  });
+  $("#serviceOrdersTable")?.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-action='change-service-order-status']");
+    if (!select) return;
+    const order = serviceOrders.find((item) => Number(item.id) === Number(select.dataset.id));
+    if (!order) return;
+    try {
+      await updateServiceOrder({ ...order, status: select.value });
+      await loadServiceOrders();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
   $("#addPartButton").addEventListener("click", () => addPartRow());
   $("#addLaborButton").addEventListener("click", () => addLaborRow());
   document.querySelectorAll("[data-budget-section]").forEach((button) => {
     button.addEventListener("click", () => openBudgetSection(button.dataset.budgetSection, button));
+  });
+  document.querySelectorAll(".side-submenu-button[data-view]").forEach((button) => {
+    button.addEventListener("click", () => openOperationsView(button.dataset.view, button));
   });
   document.querySelectorAll("[data-finance-section]").forEach((button) => {
     button.addEventListener("click", () => openFinanceSection(button.dataset.financeSection, button));
@@ -2742,6 +3355,19 @@ function bindEvents() {
 
   $("#plate").addEventListener("blur", () => {
     $("#plate").value = $("#plate").value.toUpperCase();
+    const vehicle = findVehicleByPlateInput();
+    if (vehicle) fillBudgetVehicleFields(vehicle);
+  });
+
+  ["clientEmail", "clientPhone"].forEach((id) => {
+    $(`#${id}`)?.addEventListener("blur", () => {
+      if ($("#budgetCustomerSelect").value) return;
+      const customer = findCustomerByContact();
+      if (!customer) return;
+      $("#budgetCustomerSelect").value = customer.id;
+      fillBudgetCustomerFields(customer);
+      renderBudgetVehicleOptions(customer.id);
+    });
   });
 
   $("#vehicleKm").addEventListener("blur", () => {
@@ -2889,6 +3515,7 @@ function bindEvents() {
     if (button.dataset.action === "print") printBudget(budget);
     if (button.dataset.action === "approve" && canApproveBudget(budget)) await changeBudgetStatus(button.dataset.id, STATUS.approved);
     if (button.dataset.action === "reject" && canApproveBudget(budget)) await changeBudgetStatus(button.dataset.id, STATUS.rejected);
+    if (button.dataset.action === "create-os" && canGenerateServiceOrder(budget)) await generateServiceOrderFromBudget(budget);
     if (button.dataset.action === "delete" && canDeleteBudget(budget)) await removeBudget(button.dataset.id);
   });
 
@@ -2927,6 +3554,10 @@ function bindEvents() {
   $("#modalRejectButton").addEventListener("click", async () => {
     const budget = selectedBudget();
     if (canApproveBudget(budget)) await changeBudgetStatus(budget.id, STATUS.rejected);
+  });
+  $("#modalCreateOsButton").addEventListener("click", async () => {
+    const budget = selectedBudget();
+    if (canGenerateServiceOrder(budget)) await generateServiceOrderFromBudget(budget);
   });
   $("#modalDeleteButton").addEventListener("click", async () => {
     const budget = selectedBudget();

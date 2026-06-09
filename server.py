@@ -4,17 +4,97 @@ from urllib.parse import parse_qs, urlparse
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import sqlite3
 import time
 
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "oficina.db"
-HOST = "127.0.0.1"
-PORT = 4173
-SESSION_TTL_SECONDS = 8 * 60 * 60
+
+
+def load_env_file(path):
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_env_file(ROOT / ".env")
+
+
+def env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+APP_ENV = os.environ.get("APP_ENV", "local").strip().lower()
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+DB_PATH = Path(os.environ.get("SQLITE_PATH", ROOT / "oficina.db"))
+if not DB_PATH.is_absolute():
+    DB_PATH = ROOT / DB_PATH
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = env_int("PORT", 4173)
+SESSION_TTL_SECONDS = env_int("SESSION_TTL_SECONDS", 8 * 60 * 60)
+PASSWORD_HASH_ITERATIONS = env_int("PASSWORD_HASH_ITERATIONS", 260000)
 SESSIONS = {}
+
+PLAN_CATALOG = {
+    "essencial": {
+        "code": "essencial",
+        "name": "Essencial",
+        "description": "Para oficinas pequenas que precisam organizar atendimento e orçamentos.",
+        "features": ["dashboard", "budgets"],
+        "limits": {"users": 1},
+        "prices": {"monthly": 59.0, "quarterly": 159.0, "yearly": 549.0},
+    },
+    "profissional": {
+        "code": "profissional",
+        "name": "Profissional",
+        "description": "Plano principal para oficinas que precisam de financeiro, estoque e equipe.",
+        "features": ["dashboard", "budgets", "billing", "inventory", "users"],
+        "limits": {"users": 5},
+        "prices": {"monthly": 99.0, "quarterly": 267.0, "yearly": 949.0},
+    },
+    "premium": {
+        "code": "premium",
+        "name": "Premium",
+        "description": "Para operação maior, com mais usuários, suporte prioritário e gestão avançada.",
+        "features": ["dashboard", "budgets", "billing", "inventory", "users", "advanced_reports", "priority_support"],
+        "limits": {"users": 15},
+        "prices": {"monthly": 149.0, "quarterly": 402.0, "yearly": 1399.0},
+    },
+    "homologacao": {
+        "code": "homologacao",
+        "name": "Homologação",
+        "description": "Plano interno para testes completos do ambiente local.",
+        "features": ["dashboard", "budgets", "billing", "inventory", "users", "advanced_reports", "priority_support"],
+        "limits": {"users": 50},
+        "prices": {"monthly": 0.0, "quarterly": 0.0, "yearly": 0.0},
+    },
+    "trial": {
+        "code": "trial",
+        "name": "Teste",
+        "description": "Período de avaliação com recursos profissionais.",
+        "features": ["dashboard", "budgets", "billing", "inventory", "users"],
+        "limits": {"users": 3},
+        "prices": {"monthly": 0.0, "quarterly": 0.0, "yearly": 0.0},
+    },
+}
+
+BILLING_CYCLES = {
+    "monthly": "Mensal",
+    "quarterly": "Trimestral",
+    "yearly": "Anual",
+}
+
+ACTIVE_SUBSCRIPTION_STATUSES = {"trial", "active"}
 
 
 USER_COLUMNS = [
@@ -63,6 +143,56 @@ BUDGET_COLUMNS = [
     "updatedAt",
 ]
 
+CUSTOMER_COLUMNS = [
+    "companyId",
+    "name",
+    "email",
+    "phone",
+    "zip",
+    "street",
+    "number",
+    "district",
+    "state",
+    "notes",
+    "createdAt",
+    "updatedAt",
+]
+
+VEHICLE_COLUMNS = [
+    "companyId",
+    "customerId",
+    "brand",
+    "model",
+    "year",
+    "plate",
+    "color",
+    "km",
+    "notes",
+    "createdAt",
+    "updatedAt",
+]
+
+SERVICE_ORDER_COLUMNS = [
+    "companyId",
+    "budgetId",
+    "customerId",
+    "vehicleId",
+    "number",
+    "status",
+    "priority",
+    "entryDate",
+    "expectedDeliveryDate",
+    "completedAt",
+    "problemDescription",
+    "serviceDescription",
+    "internalNotes",
+    "parts",
+    "labor",
+    "totalAmount",
+    "createdAt",
+    "updatedAt",
+]
+
 PART_COLUMNS = [
     "companyId",
     "brand",
@@ -107,6 +237,7 @@ SUBSCRIPTION_COLUMNS = [
     "companyId",
     "plan",
     "status",
+    "billingCycle",
     "provider",
     "providerCustomerId",
     "providerSubscriptionId",
@@ -158,11 +289,43 @@ def ensure_column(conn, table, column, definition):
 
 
 def hash_password(password):
-    return hashlib.sha256(str(password or "").encode("utf-8")).hexdigest()
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password or "").encode("utf-8"),
+        salt.encode("utf-8"),
+        PASSWORD_HASH_ITERATIONS,
+    ).hex()
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}"
 
 
 def verify_password(password, stored_hash):
-    return hmac.compare_digest(hash_password(password), str(stored_hash or ""))
+    stored = str(stored_hash or "")
+    if stored.startswith("pbkdf2_sha256$"):
+        try:
+            _, iterations, salt, digest = stored.split("$", 3)
+            candidate = hashlib.pbkdf2_hmac(
+                "sha256",
+                str(password or "").encode("utf-8"),
+                salt.encode("utf-8"),
+                int(iterations),
+            ).hex()
+            return hmac.compare_digest(candidate, digest)
+        except (ValueError, TypeError):
+            return False
+    legacy_digest = hashlib.sha256(str(password or "").encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy_digest, stored)
+
+
+def password_needs_rehash(stored_hash):
+    stored = str(stored_hash or "")
+    if not stored.startswith("pbkdf2_sha256$"):
+        return True
+    try:
+        _, iterations, _, _ = stored.split("$", 3)
+        return int(iterations) < PASSWORD_HASH_ITERATIONS
+    except (ValueError, TypeError):
+        return True
 
 
 def create_session(user_id):
@@ -186,9 +349,23 @@ def get_session_user(token):
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT users.*, companies.name AS companyName
+            SELECT
+                users.*,
+                companies.name AS companyName,
+                subscriptions.plan AS subscriptionPlan,
+                subscriptions.status AS subscriptionStatus,
+                subscriptions.billingCycle,
+                subscriptions.currentPeriodStart,
+                subscriptions.currentPeriodEnd,
+                subscriptions.trialEndsAt
             FROM users
             LEFT JOIN companies ON companies.id = users.companyId
+            LEFT JOIN subscriptions ON subscriptions.id = (
+                SELECT id FROM subscriptions AS latest_subscriptions
+                WHERE latest_subscriptions.companyId = users.companyId
+                ORDER BY datetime(latest_subscriptions.createdAt) DESC, latest_subscriptions.id DESC
+                LIMIT 1
+            )
             WHERE users.id = ?
             """,
             (session["userId"],),
@@ -207,6 +384,60 @@ def is_platform_admin(user):
     return bool(user and user.get("isPlatformAdmin"))
 
 
+def normalize_plan_code(plan):
+    code = str(plan or "trial").strip().lower()
+    return code if code in PLAN_CATALOG else "trial"
+
+
+def normalize_billing_cycle(cycle):
+    code = str(cycle or "monthly").strip().lower()
+    return code if code in BILLING_CYCLES else "monthly"
+
+
+def plan_payload(plan_code, billing_cycle="monthly"):
+    code = normalize_plan_code(plan_code)
+    cycle = normalize_billing_cycle(billing_cycle)
+    plan = PLAN_CATALOG[code]
+    return {
+        **plan,
+        "billingCycle": cycle,
+        "billingCycleLabel": BILLING_CYCLES[cycle],
+        "currentPrice": plan["prices"].get(cycle, 0.0),
+    }
+
+
+def latest_subscription_join():
+    return """
+        LEFT JOIN subscriptions ON subscriptions.id = (
+            SELECT id FROM subscriptions AS latest_subscriptions
+            WHERE latest_subscriptions.companyId = users.companyId
+            ORDER BY datetime(latest_subscriptions.createdAt) DESC, latest_subscriptions.id DESC
+            LIMIT 1
+        )
+    """
+
+
+def user_plan(user):
+    return plan_payload(user.get("subscriptionPlan"), user.get("billingCycle")) if user else plan_payload("trial")
+
+
+def plan_has_feature(user, feature):
+    if is_platform_admin(user):
+        return True
+    return feature in user_plan(user)["features"]
+
+
+def subscription_allows_write(user):
+    if is_platform_admin(user):
+        return True
+    return str(user.get("subscriptionStatus") or "").strip() in ACTIVE_SUBSCRIPTION_STATUSES
+
+
+def subscription_block_message(user):
+    status = str(user.get("subscriptionStatus") or "sem status")
+    return f"Assinatura {status}. Regularize o plano para continuar alterando dados."
+
+
 def init_db():
     with connect() as conn:
         conn.executescript(
@@ -221,6 +452,11 @@ def init_db():
                 ownerUserId INTEGER,
                 createdAt TEXT,
                 updatedAt TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version TEXT PRIMARY KEY,
+                appliedAt TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS users (
@@ -278,6 +514,73 @@ def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
                 ON users(lower(username))
                 WHERE username IS NOT NULL AND trim(username) <> '';
+
+            CREATE TABLE IF NOT EXISTS customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                companyId INTEGER,
+                name TEXT NOT NULL,
+                email TEXT,
+                phone TEXT,
+                zip TEXT,
+                street TEXT,
+                number TEXT,
+                district TEXT,
+                state TEXT,
+                notes TEXT,
+                createdAt TEXT,
+                updatedAt TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS vehicles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                companyId INTEGER,
+                customerId INTEGER,
+                brand TEXT,
+                model TEXT,
+                year TEXT,
+                plate TEXT,
+                color TEXT,
+                km TEXT,
+                notes TEXT,
+                createdAt TEXT,
+                updatedAt TEXT,
+                FOREIGN KEY (customerId) REFERENCES customers(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS service_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                companyId INTEGER,
+                budgetId INTEGER,
+                customerId INTEGER,
+                vehicleId INTEGER,
+                number TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'aberta',
+                priority TEXT NOT NULL DEFAULT 'normal',
+                entryDate TEXT,
+                expectedDeliveryDate TEXT,
+                completedAt TEXT,
+                problemDescription TEXT,
+                serviceDescription TEXT,
+                internalNotes TEXT,
+                parts TEXT NOT NULL DEFAULT '[]',
+                labor TEXT NOT NULL DEFAULT '[]',
+                totalAmount REAL NOT NULL DEFAULT 0,
+                createdAt TEXT,
+                updatedAt TEXT,
+                FOREIGN KEY (budgetId) REFERENCES budgets(id),
+                FOREIGN KEY (customerId) REFERENCES customers(id),
+                FOREIGN KEY (vehicleId) REFERENCES vehicles(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_customers_company ON customers(companyId);
+            CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name COLLATE NOCASE);
+            CREATE INDEX IF NOT EXISTS idx_vehicles_company ON vehicles(companyId);
+            CREATE INDEX IF NOT EXISTS idx_vehicles_customer ON vehicles(customerId);
+            CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON vehicles(plate COLLATE NOCASE);
+            CREATE INDEX IF NOT EXISTS idx_service_orders_company ON service_orders(companyId);
+            CREATE INDEX IF NOT EXISTS idx_service_orders_budget ON service_orders(budgetId);
+            CREATE INDEX IF NOT EXISTS idx_service_orders_status ON service_orders(status);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_service_orders_number_company ON service_orders(companyId, number);
 
             CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY,
@@ -340,6 +643,7 @@ def init_db():
                 companyId INTEGER NOT NULL,
                 plan TEXT NOT NULL DEFAULT 'trial',
                 status TEXT NOT NULL DEFAULT 'trial',
+                billingCycle TEXT NOT NULL DEFAULT 'monthly',
                 provider TEXT,
                 providerCustomerId TEXT,
                 providerSubscriptionId TEXT,
@@ -394,16 +698,30 @@ def init_db():
         ensure_column(conn, "users", "companyId", "INTEGER")
         ensure_column(conn, "users", "isPlatformAdmin", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "budgets", "companyId", "INTEGER")
+        ensure_column(conn, "customers", "companyId", "INTEGER")
+        ensure_column(conn, "vehicles", "companyId", "INTEGER")
+        ensure_column(conn, "service_orders", "companyId", "INTEGER")
         ensure_column(conn, "parts_inventory", "companyId", "INTEGER")
         ensure_column(conn, "suppliers", "companyId", "INTEGER")
         ensure_column(conn, "accounts_payable", "companyId", "INTEGER")
+        ensure_column(conn, "subscriptions", "billingCycle", "TEXT NOT NULL DEFAULT 'monthly'")
         conn.executescript(
             """
             CREATE INDEX IF NOT EXISTS idx_users_company ON users(companyId);
             CREATE INDEX IF NOT EXISTS idx_budgets_company ON budgets(companyId);
+            CREATE INDEX IF NOT EXISTS idx_customers_company ON customers(companyId);
+            CREATE INDEX IF NOT EXISTS idx_vehicles_company ON vehicles(companyId);
+            CREATE INDEX IF NOT EXISTS idx_service_orders_company ON service_orders(companyId);
             CREATE INDEX IF NOT EXISTS idx_parts_inventory_company ON parts_inventory(companyId);
             CREATE INDEX IF NOT EXISTS idx_suppliers_company ON suppliers(companyId);
             CREATE INDEX IF NOT EXISTS idx_accounts_payable_company ON accounts_payable(companyId);
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
+            VALUES ('20260609_web_saas_baseline', datetime('now'))
             """
         )
 
@@ -510,10 +828,34 @@ def row_to_user(row):
     item.pop("passwordHash", None)
     item["blocked"] = bool(item.get("blocked"))
     item["isPlatformAdmin"] = bool(item.get("isPlatformAdmin"))
+    item["subscriptionPlan"] = normalize_plan_code(item.get("subscriptionPlan"))
+    item["billingCycle"] = normalize_billing_cycle(item.get("billingCycle"))
+    item["subscriptionStatus"] = item.get("subscriptionStatus") or "trial"
+    item["plan"] = plan_payload(item["subscriptionPlan"], item["billingCycle"])
     return item
 
 
 def row_to_budget(row):
+    if row is None:
+        return None
+    item = dict(row)
+    for key in ("parts", "labor"):
+        try:
+            item[key] = json.loads(item.get(key) or "[]")
+        except json.JSONDecodeError:
+            item[key] = []
+    return item
+
+
+def row_to_customer(row):
+    return dict(row) if row is not None else None
+
+
+def row_to_vehicle(row):
+    return dict(row) if row is not None else None
+
+
+def row_to_service_order(row):
     if row is None:
         return None
     item = dict(row)
@@ -579,6 +921,49 @@ def normalize_budget(payload):
     return data
 
 
+def normalize_customer(payload):
+    data = {key: payload.get(key) for key in CUSTOMER_COLUMNS}
+    data["name"] = str(data.get("name") or payload.get("clientName") or "").strip()
+    data["email"] = str(data.get("email") or payload.get("clientEmail") or "").lower().strip()
+    data["phone"] = str(data.get("phone") or payload.get("clientPhone") or "").strip()
+    data["zip"] = str(data.get("zip") or payload.get("clientZip") or "").strip()
+    data["street"] = str(data.get("street") or payload.get("clientStreet") or payload.get("clientAddress") or "").strip()
+    data["number"] = str(data.get("number") or payload.get("clientNumber") or "").strip()
+    data["district"] = str(data.get("district") or payload.get("clientDistrict") or "").strip()
+    data["state"] = str(data.get("state") or payload.get("clientState") or "").upper().strip()
+    data["notes"] = str(data.get("notes") or "").strip()
+    return data
+
+
+def normalize_vehicle(payload):
+    data = {key: payload.get(key) for key in VEHICLE_COLUMNS}
+    data["customerId"] = int(data.get("customerId") or 0) or None
+    data["brand"] = str(data.get("brand") or payload.get("vehicleBrand") or "").strip()
+    data["model"] = str(data.get("model") or payload.get("vehicleModel") or payload.get("vehicle") or "").strip()
+    data["year"] = str(data.get("year") or payload.get("vehicleYear") or "").strip()
+    data["plate"] = str(data.get("plate") or "").upper().replace("-", "").strip()
+    data["color"] = str(data.get("color") or payload.get("vehicleColor") or "").strip()
+    data["km"] = str(data.get("km") or payload.get("vehicleKm") or "").strip()
+    data["notes"] = str(data.get("notes") or "").strip()
+    return data
+
+
+def normalize_service_order(payload):
+    data = {key: payload.get(key) for key in SERVICE_ORDER_COLUMNS}
+    for key in ("budgetId", "customerId", "vehicleId"):
+        data[key] = int(data.get(key) or 0) or None
+    data["number"] = str(data.get("number") or "").strip()
+    data["status"] = str(data.get("status") or "aberta").strip()
+    data["priority"] = str(data.get("priority") or "normal").strip()
+    data["problemDescription"] = str(data.get("problemDescription") or "").strip()
+    data["serviceDescription"] = str(data.get("serviceDescription") or "").strip()
+    data["internalNotes"] = str(data.get("internalNotes") or "").strip()
+    data["parts"] = json.dumps(data.get("parts") or [], ensure_ascii=False)
+    data["labor"] = json.dumps(data.get("labor") or [], ensure_ascii=False)
+    data["totalAmount"] = float(data.get("totalAmount") or 0)
+    return data
+
+
 def normalize_part(payload, existing_code=None):
     data = {key: payload.get(key) for key in PART_COLUMNS}
     data["brand"] = str(data.get("brand") or "").strip()
@@ -619,8 +1004,9 @@ def normalize_payable(payload):
 def normalize_subscription(payload):
     data = {key: payload.get(key) for key in SUBSCRIPTION_COLUMNS}
     data["companyId"] = int(data.get("companyId") or 0)
-    data["plan"] = str(data.get("plan") or "trial").strip()
+    data["plan"] = normalize_plan_code(data.get("plan"))
     data["status"] = str(data.get("status") or "trial").strip()
+    data["billingCycle"] = normalize_billing_cycle(data.get("billingCycle"))
     data["provider"] = str(data.get("provider") or "").strip()
     data["providerCustomerId"] = str(data.get("providerCustomerId") or "").strip()
     data["providerSubscriptionId"] = str(data.get("providerSubscriptionId") or "").strip()
@@ -675,12 +1061,106 @@ def next_part_code(conn):
     return f"PEC-{next_id:05d}"
 
 
+def next_service_order_number(conn, company_id):
+    row = conn.execute(
+        "SELECT COUNT(*) AS total FROM service_orders WHERE companyId = ?",
+        (company_id,),
+    ).fetchone()
+    next_id = int(row["total"] or 0) + 1
+    return f"OS-{next_id:05d}"
+
+
+def budget_total_value(budget):
+    parts = json.loads(budget["parts"] or "[]") if isinstance(budget["parts"], str) else budget.get("parts") or []
+    labor = json.loads(budget["labor"] or "[]") if isinstance(budget["labor"], str) else budget.get("labor") or []
+    parts_total = sum(float(item.get("quantity") or 0) * float(item.get("value") or 0) for item in parts)
+    labor_total = sum(float(item.get("value") or 0) for item in labor)
+    return parts_total + labor_total
+
+
+def upsert_customer_from_budget(conn, budget):
+    email = str(budget["clientEmail"] or "").lower().strip()
+    phone = str(budget["clientPhone"] or "").strip()
+    row = None
+    if email:
+        row = conn.execute(
+            "SELECT * FROM customers WHERE companyId = ? AND lower(email) = ?",
+            (budget["companyId"], email),
+        ).fetchone()
+    if row is None and phone:
+        row = conn.execute(
+            "SELECT * FROM customers WHERE companyId = ? AND phone = ?",
+            (budget["companyId"], phone),
+        ).fetchone()
+
+    data = normalize_customer(dict(budget))
+    data["companyId"] = budget["companyId"]
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    if row:
+        data["createdAt"] = row["createdAt"]
+        data["updatedAt"] = now
+        assignments = ", ".join([f"{column} = ?" for column in CUSTOMER_COLUMNS])
+        conn.execute(
+            f"UPDATE customers SET {assignments} WHERE id = ? AND companyId = ?",
+            [data[column] for column in CUSTOMER_COLUMNS] + [row["id"], budget["companyId"]],
+        )
+        return row["id"]
+
+    data["createdAt"] = now
+    data["updatedAt"] = now
+    columns = ", ".join(CUSTOMER_COLUMNS)
+    marks = ", ".join(["?"] * len(CUSTOMER_COLUMNS))
+    cursor = conn.execute(
+        f"INSERT INTO customers ({columns}) VALUES ({marks})",
+        [data[column] for column in CUSTOMER_COLUMNS],
+    )
+    return cursor.lastrowid
+
+
+def upsert_vehicle_from_budget(conn, budget, customer_id):
+    plate = str(budget["plate"] or "").upper().replace("-", "").strip()
+    row = None
+    if plate:
+        row = conn.execute(
+            "SELECT * FROM vehicles WHERE companyId = ? AND upper(replace(plate, '-', '')) = ?",
+            (budget["companyId"], plate),
+        ).fetchone()
+
+    data = normalize_vehicle(dict(budget))
+    data["companyId"] = budget["companyId"]
+    data["customerId"] = customer_id
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    if row:
+        data["createdAt"] = row["createdAt"]
+        data["updatedAt"] = now
+        assignments = ", ".join([f"{column} = ?" for column in VEHICLE_COLUMNS])
+        conn.execute(
+            f"UPDATE vehicles SET {assignments} WHERE id = ? AND companyId = ?",
+            [data[column] for column in VEHICLE_COLUMNS] + [row["id"], budget["companyId"]],
+        )
+        return row["id"]
+
+    data["createdAt"] = now
+    data["updatedAt"] = now
+    columns = ", ".join(VEHICLE_COLUMNS)
+    marks = ", ".join(["?"] * len(VEHICLE_COLUMNS))
+    cursor = conn.execute(
+        f"INSERT INTO vehicles ({columns}) VALUES ({marks})",
+        [data[column] for column in VEHICLE_COLUMNS],
+    )
+    return cursor.lastrowid
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         super().end_headers()
 
     def send_json(self, data, status=200):
@@ -711,6 +1191,19 @@ class Handler(SimpleHTTPRequestHandler):
             return None
         return user
 
+    def require_plan_feature(self, user, feature, write=False):
+        if not plan_has_feature(user, feature):
+            plan = user_plan(user)
+            self.send_json(
+                {"error": f"Recurso não disponível no plano {plan['name']}."},
+                403,
+            )
+            return False
+        if write and not subscription_allows_write(user):
+            self.send_json({"error": subscription_block_message(user)}, 402)
+            return False
+        return True
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -721,12 +1214,30 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "database": str(DB_PATH)})
                 return
 
+            if path == "/api/plans":
+                self.send_json({
+                    "plans": list(PLAN_CATALOG.values()),
+                    "billingCycles": BILLING_CYCLES,
+                })
+                return
+
             auth_user = None
             if path.startswith("/api/"):
                 auth_user = self.require_auth()
                 if auth_user is None:
                     return
             company_id = auth_user["companyId"] if auth_user else None
+
+            if path == "/api/subscription/current":
+                self.send_json({
+                    "status": auth_user.get("subscriptionStatus"),
+                    "plan": user_plan(auth_user),
+                    "currentPeriodStart": auth_user.get("currentPeriodStart"),
+                    "currentPeriodEnd": auth_user.get("currentPeriodEnd"),
+                    "trialEndsAt": auth_user.get("trialEndsAt"),
+                    "canWrite": subscription_allows_write(auth_user),
+                })
+                return
 
             if path == "/api/platform/companies":
                 if not is_platform_admin(auth_user):
@@ -747,6 +1258,7 @@ class Handler(SimpleHTTPRequestHandler):
                             subscriptions.id AS subscriptionId,
                             subscriptions.plan,
                             subscriptions.status AS subscriptionStatus,
+                            subscriptions.billingCycle,
                             subscriptions.currentPeriodStart,
                             subscriptions.currentPeriodEnd,
                             subscriptions.trialEndsAt,
@@ -755,7 +1267,12 @@ class Handler(SimpleHTTPRequestHandler):
                             COUNT(DISTINCT CASE WHEN budgets.status = 'aprovado' THEN budgets.id END) AS approvedBudgetCount,
                             MAX(payments.paidAt) AS lastPaymentAt
                         FROM companies
-                        LEFT JOIN subscriptions ON subscriptions.companyId = companies.id
+                        LEFT JOIN subscriptions ON subscriptions.id = (
+                            SELECT id FROM subscriptions AS latest_subscriptions
+                            WHERE latest_subscriptions.companyId = companies.id
+                            ORDER BY datetime(latest_subscriptions.createdAt) DESC, latest_subscriptions.id DESC
+                            LIMIT 1
+                        )
                         LEFT JOIN users ON users.companyId = companies.id
                         LEFT JOIN budgets ON budgets.companyId = companies.id
                         LEFT JOIN payments ON payments.companyId = companies.id
@@ -831,6 +1348,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if path == "/api/users":
+                if not self.require_plan_feature(auth_user, "users"):
+                    return
                 with connect() as conn:
                     rows = conn.execute(
                         "SELECT * FROM users WHERE companyId = ? ORDER BY name COLLATE NOCASE",
@@ -840,6 +1359,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if path == "/api/users/by-email":
+                if not self.require_plan_feature(auth_user, "users"):
+                    return
                 email = (query.get("email") or [""])[0].lower().strip()
                 with connect() as conn:
                     row = conn.execute(
@@ -850,6 +1371,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if path == "/api/users/by-login":
+                if not self.require_plan_feature(auth_user, "users"):
+                    return
                 login = (query.get("login") or [""])[0].lower().strip()
                 with connect() as conn:
                     row = conn.execute(
@@ -863,6 +1386,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if path == "/api/budgets":
+                if not self.require_plan_feature(auth_user, "budgets"):
+                    return
                 with connect() as conn:
                     rows = conn.execute(
                         "SELECT * FROM budgets WHERE companyId = ? ORDER BY datetime(createdAt) DESC",
@@ -871,7 +1396,74 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json([row_to_budget(row) for row in rows])
                 return
 
+            if path == "/api/customers":
+                if not self.require_plan_feature(auth_user, "budgets"):
+                    return
+                with connect() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT
+                            customers.*,
+                            COUNT(DISTINCT vehicles.id) AS vehicleCount,
+                            COUNT(DISTINCT service_orders.id) AS serviceOrderCount
+                        FROM customers
+                        LEFT JOIN vehicles ON vehicles.customerId = customers.id
+                        LEFT JOIN service_orders ON service_orders.customerId = customers.id
+                        WHERE customers.companyId = ?
+                        GROUP BY customers.id
+                        ORDER BY customers.name COLLATE NOCASE
+                        """,
+                        (company_id,),
+                    ).fetchall()
+                self.send_json([row_to_customer(row) for row in rows])
+                return
+
+            if path == "/api/vehicles":
+                if not self.require_plan_feature(auth_user, "budgets"):
+                    return
+                with connect() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT vehicles.*, customers.name AS customerName
+                        FROM vehicles
+                        LEFT JOIN customers ON customers.id = vehicles.customerId
+                        WHERE vehicles.companyId = ?
+                        ORDER BY vehicles.plate COLLATE NOCASE, vehicles.model COLLATE NOCASE
+                        """,
+                        (company_id,),
+                    ).fetchall()
+                self.send_json([row_to_vehicle(row) for row in rows])
+                return
+
+            if path == "/api/service-orders":
+                if not self.require_plan_feature(auth_user, "budgets"):
+                    return
+                with connect() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT
+                            service_orders.*,
+                            customers.name AS customerName,
+                            customers.phone AS customerPhone,
+                            vehicles.brand AS vehicleBrand,
+                            vehicles.model AS vehicleModel,
+                            vehicles.plate AS vehiclePlate,
+                            budgets.status AS budgetStatus
+                        FROM service_orders
+                        LEFT JOIN customers ON customers.id = service_orders.customerId
+                        LEFT JOIN vehicles ON vehicles.id = service_orders.vehicleId
+                        LEFT JOIN budgets ON budgets.id = service_orders.budgetId
+                        WHERE service_orders.companyId = ?
+                        ORDER BY datetime(service_orders.createdAt) DESC, service_orders.id DESC
+                        """,
+                        (company_id,),
+                    ).fetchall()
+                self.send_json([row_to_service_order(row) for row in rows])
+                return
+
             if path == "/api/parts":
+                if not self.require_plan_feature(auth_user, "inventory"):
+                    return
                 with connect() as conn:
                     rows = conn.execute(
                         """
@@ -885,6 +1477,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if path == "/api/suppliers":
+                if not self.require_plan_feature(auth_user, "inventory"):
+                    return
                 with connect() as conn:
                     rows = conn.execute(
                         """
@@ -898,6 +1492,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if path == "/api/payables":
+                if not self.require_plan_feature(auth_user, "billing"):
+                    return
                 limit = int((query.get("limit") or ["0"])[0] or 0)
                 sql = """
                     SELECT * FROM accounts_payable
@@ -936,9 +1532,23 @@ class Handler(SimpleHTTPRequestHandler):
                 with connect() as conn:
                     row = conn.execute(
                         """
-                        SELECT users.*, companies.name AS companyName
+                        SELECT
+                            users.*,
+                            companies.name AS companyName,
+                            subscriptions.plan AS subscriptionPlan,
+                            subscriptions.status AS subscriptionStatus,
+                            subscriptions.billingCycle,
+                            subscriptions.currentPeriodStart,
+                            subscriptions.currentPeriodEnd,
+                            subscriptions.trialEndsAt
                         FROM users
                         LEFT JOIN companies ON companies.id = users.companyId
+                        LEFT JOIN subscriptions ON subscriptions.id = (
+                            SELECT id FROM subscriptions AS latest_subscriptions
+                            WHERE latest_subscriptions.companyId = users.companyId
+                            ORDER BY datetime(latest_subscriptions.createdAt) DESC, latest_subscriptions.id DESC
+                            LIMIT 1
+                        )
                         WHERE lower(users.email) = ? OR lower(users.username) = ?
                         """,
                         (login, login),
@@ -947,6 +1557,13 @@ class Handler(SimpleHTTPRequestHandler):
                 if not row or not verify_password(password, row["passwordHash"]):
                     self.send_json({"error": "Usuário, e-mail ou senha inválidos."}, 401)
                     return
+
+                if password_needs_rehash(row["passwordHash"]):
+                    with connect() as conn:
+                        conn.execute(
+                            "UPDATE users SET passwordHash = ?, updatedAt = datetime('now') WHERE id = ?",
+                            (hash_password(password), row["id"]),
+                        )
 
                 user = row_to_user(row)
                 if user.get("blocked"):
@@ -990,7 +1607,7 @@ class Handler(SimpleHTTPRequestHandler):
                         "subscription",
                         cursor.lastrowid,
                         data["companyId"],
-                        {"plan": data["plan"], "status": data["status"]},
+                        {"plan": data["plan"], "status": data["status"], "billingCycle": data["billingCycle"]},
                     )
                     row = conn.execute("SELECT * FROM subscriptions WHERE id = ?", (cursor.lastrowid,)).fetchone()
                 self.send_json(row_to_subscription(row), 201)
@@ -1038,8 +1655,9 @@ class Handler(SimpleHTTPRequestHandler):
                 owner_password = str(payload.get("ownerPassword") or "")
                 owner_name = str(payload.get("ownerName") or "").strip()
                 owner_phone = str(payload.get("ownerPhone") or "").strip()
-                plan = str(payload.get("plan") or "trial").strip()
+                plan = normalize_plan_code(payload.get("plan"))
                 status = str(payload.get("status") or "trial").strip()
+                billing_cycle = normalize_billing_cycle(payload.get("billingCycle"))
                 now = time.strftime("%Y-%m-%d %H:%M:%S")
 
                 if not company["name"]:
@@ -1096,10 +1714,10 @@ class Handler(SimpleHTTPRequestHandler):
                     )
                     sub_cursor = conn.execute(
                         """
-                        INSERT INTO subscriptions (companyId, plan, status, createdAt, updatedAt)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO subscriptions (companyId, plan, status, billingCycle, createdAt, updatedAt)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (company_id, plan, status, now, now),
+                        (company_id, plan, status, billing_cycle, now, now),
                     )
                     log_platform_audit(
                         conn,
@@ -1115,6 +1733,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "subscriptionId": sub_cursor.lastrowid,
                             "plan": plan,
                             "status": status,
+                            "billingCycle": billing_cycle,
                         },
                     )
                     row = conn.execute(
@@ -1129,6 +1748,7 @@ class Handler(SimpleHTTPRequestHandler):
                             companies.updatedAt,
                             subscriptions.plan,
                             subscriptions.status AS subscriptionStatus,
+                            subscriptions.billingCycle,
                             NULL AS currentPeriodStart,
                             subscriptions.currentPeriodEnd,
                             subscriptions.trialEndsAt,
@@ -1146,6 +1766,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/users":
+                if not self.require_plan_feature(auth_user, "users", write=True):
+                    return
                 data = normalize_user(payload)
                 data["companyId"] = company_id
                 if not data.get("passwordHash"):
@@ -1154,6 +1776,14 @@ class Handler(SimpleHTTPRequestHandler):
                 columns = ", ".join(USER_COLUMNS)
                 marks = ", ".join(["?"] * len(USER_COLUMNS))
                 with connect() as conn:
+                    user_count = conn.execute(
+                        "SELECT COUNT(*) AS total FROM users WHERE companyId = ?",
+                        (company_id,),
+                    ).fetchone()["total"]
+                    max_users = int(user_plan(auth_user)["limits"].get("users") or 0)
+                    if max_users and user_count >= max_users:
+                        self.send_json({"error": f"Limite de {max_users} usuário(s) atingido para este plano."}, 403)
+                        return
                     cursor = conn.execute(
                         f"INSERT INTO users ({columns}) VALUES ({marks})",
                         [data[column] for column in USER_COLUMNS],
@@ -1163,6 +1793,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/budgets":
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
                 data = normalize_budget(payload)
                 data["companyId"] = company_id
                 columns = ", ".join(BUDGET_COLUMNS)
@@ -1176,7 +1808,130 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(row_to_budget(row), 201)
                 return
 
+            if parsed.path == "/api/customers":
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
+                data = normalize_customer(payload)
+                data["companyId"] = company_id
+                now = time.strftime("%Y-%m-%d %H:%M:%S")
+                data["createdAt"] = data.get("createdAt") or now
+                data["updatedAt"] = now
+                if not data["name"]:
+                    self.send_json({"error": "Informe o nome do cliente."}, 400)
+                    return
+                columns = ", ".join(CUSTOMER_COLUMNS)
+                marks = ", ".join(["?"] * len(CUSTOMER_COLUMNS))
+                with connect() as conn:
+                    cursor = conn.execute(
+                        f"INSERT INTO customers ({columns}) VALUES ({marks})",
+                        [data[column] for column in CUSTOMER_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM customers WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                self.send_json(row_to_customer(row), 201)
+                return
+
+            if parsed.path == "/api/vehicles":
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
+                data = normalize_vehicle(payload)
+                data["companyId"] = company_id
+                now = time.strftime("%Y-%m-%d %H:%M:%S")
+                data["createdAt"] = data.get("createdAt") or now
+                data["updatedAt"] = now
+                if not data["customerId"] or not data["plate"]:
+                    self.send_json({"error": "Informe cliente e placa do veículo."}, 400)
+                    return
+                columns = ", ".join(VEHICLE_COLUMNS)
+                marks = ", ".join(["?"] * len(VEHICLE_COLUMNS))
+                with connect() as conn:
+                    cursor = conn.execute(
+                        f"INSERT INTO vehicles ({columns}) VALUES ({marks})",
+                        [data[column] for column in VEHICLE_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM vehicles WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                self.send_json(row_to_vehicle(row), 201)
+                return
+
+            if parsed.path == "/api/service-orders/from-budget":
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
+                budget_id = int(payload.get("budgetId") or 0)
+                with connect() as conn:
+                    budget = conn.execute(
+                        "SELECT * FROM budgets WHERE id = ? AND companyId = ?",
+                        (budget_id, company_id),
+                    ).fetchone()
+                    if budget is None:
+                        self.send_json({"error": "Orçamento não encontrado."}, 404)
+                        return
+                    if budget["status"] != "aprovado":
+                        self.send_json({"error": "A OS só pode ser gerada a partir de orçamento aprovado."}, 400)
+                        return
+                    existing = conn.execute(
+                        "SELECT * FROM service_orders WHERE budgetId = ? AND companyId = ?",
+                        (budget_id, company_id),
+                    ).fetchone()
+                    if existing:
+                        self.send_json(row_to_service_order(existing))
+                        return
+
+                    customer_id = upsert_customer_from_budget(conn, budget)
+                    vehicle_id = upsert_vehicle_from_budget(conn, budget, customer_id)
+                    now = time.strftime("%Y-%m-%d %H:%M:%S")
+                    data = normalize_service_order({
+                        "companyId": company_id,
+                        "budgetId": budget_id,
+                        "customerId": customer_id,
+                        "vehicleId": vehicle_id,
+                        "number": next_service_order_number(conn, company_id),
+                        "status": "aberta",
+                        "priority": payload.get("priority") or "normal",
+                        "entryDate": payload.get("entryDate") or now[:10],
+                        "expectedDeliveryDate": payload.get("expectedDeliveryDate") or "",
+                        "problemDescription": budget["notes"] or "",
+                        "serviceDescription": budget["description"] or "",
+                        "internalNotes": "",
+                        "parts": json.loads(budget["parts"] or "[]"),
+                        "labor": json.loads(budget["labor"] or "[]"),
+                        "totalAmount": budget_total_value(budget),
+                        "createdAt": now,
+                        "updatedAt": now,
+                    })
+                    columns = ", ".join(SERVICE_ORDER_COLUMNS)
+                    marks = ", ".join(["?"] * len(SERVICE_ORDER_COLUMNS))
+                    cursor = conn.execute(
+                        f"INSERT INTO service_orders ({columns}) VALUES ({marks})",
+                        [data[column] for column in SERVICE_ORDER_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM service_orders WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                self.send_json(row_to_service_order(row), 201)
+                return
+
+            if parsed.path == "/api/service-orders":
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
+                data = normalize_service_order(payload)
+                data["companyId"] = company_id
+                now = time.strftime("%Y-%m-%d %H:%M:%S")
+                data["number"] = data["number"] or ""
+                data["createdAt"] = data.get("createdAt") or now
+                data["updatedAt"] = now
+                with connect() as conn:
+                    if not data["number"]:
+                        data["number"] = next_service_order_number(conn, company_id)
+                    columns = ", ".join(SERVICE_ORDER_COLUMNS)
+                    marks = ", ".join(["?"] * len(SERVICE_ORDER_COLUMNS))
+                    cursor = conn.execute(
+                        f"INSERT INTO service_orders ({columns}) VALUES ({marks})",
+                        [data[column] for column in SERVICE_ORDER_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM service_orders WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                self.send_json(row_to_service_order(row), 201)
+                return
+
             if parsed.path == "/api/parts":
+                if not self.require_plan_feature(auth_user, "inventory", write=True):
+                    return
                 with connect() as conn:
                     data = normalize_part(payload, next_part_code(conn))
                     data["companyId"] = company_id
@@ -1191,6 +1946,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/suppliers":
+                if not self.require_plan_feature(auth_user, "inventory", write=True):
+                    return
                 data = normalize_supplier(payload)
                 data["companyId"] = company_id
                 columns = ", ".join(SUPPLIER_COLUMNS)
@@ -1205,6 +1962,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/payables":
+                if not self.require_plan_feature(auth_user, "billing", write=True):
+                    return
                 data = normalize_payable(payload)
                 data["companyId"] = company_id
                 columns = ", ".join(PAYABLE_COLUMNS)
@@ -1271,6 +2030,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "before": {
                                 "plan": current["plan"],
                                 "status": current["status"],
+                                "billingCycle": current["billingCycle"],
                                 "currentPeriodStart": current["currentPeriodStart"],
                                 "currentPeriodEnd": current["currentPeriodEnd"],
                                 "trialEndsAt": current["trialEndsAt"],
@@ -1278,6 +2038,7 @@ class Handler(SimpleHTTPRequestHandler):
                             "after": {
                                 "plan": data["plan"],
                                 "status": data["status"],
+                                "billingCycle": data["billingCycle"],
                                 "currentPeriodStart": data["currentPeriodStart"],
                                 "currentPeriodEnd": data["currentPeriodEnd"],
                                 "trialEndsAt": data["trialEndsAt"],
@@ -1289,6 +2050,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path.startswith("/api/users/"):
+                if not self.require_plan_feature(auth_user, "users", write=True):
+                    return
                 user_id = int(parsed.path.rsplit("/", 1)[-1])
                 with connect() as conn:
                     current = conn.execute(
@@ -1315,6 +2078,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path.startswith("/api/budgets/"):
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
                 budget_id = int(parsed.path.rsplit("/", 1)[-1])
                 data = normalize_budget(payload)
                 data["companyId"] = company_id
@@ -1331,7 +2096,96 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(row_to_budget(row))
                 return
 
+            if parsed.path.startswith("/api/customers/"):
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
+                customer_id = int(parsed.path.rsplit("/", 1)[-1])
+                data = normalize_customer(payload)
+                data["companyId"] = company_id
+                data["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                with connect() as conn:
+                    current = conn.execute(
+                        "SELECT * FROM customers WHERE id = ? AND companyId = ?",
+                        (customer_id, company_id),
+                    ).fetchone()
+                    if current is None:
+                        self.send_json({"error": "Cliente não encontrado."}, 404)
+                        return
+                    data["createdAt"] = current["createdAt"]
+                    assignments = ", ".join([f"{column} = ?" for column in CUSTOMER_COLUMNS])
+                    conn.execute(
+                        f"UPDATE customers SET {assignments} WHERE id = ? AND companyId = ?",
+                        [data[column] for column in CUSTOMER_COLUMNS] + [customer_id, company_id],
+                    )
+                    row = conn.execute(
+                        "SELECT * FROM customers WHERE id = ? AND companyId = ?",
+                        (customer_id, company_id),
+                    ).fetchone()
+                self.send_json(row_to_customer(row))
+                return
+
+            if parsed.path.startswith("/api/vehicles/"):
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
+                vehicle_id = int(parsed.path.rsplit("/", 1)[-1])
+                data = normalize_vehicle(payload)
+                data["companyId"] = company_id
+                data["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                with connect() as conn:
+                    current = conn.execute(
+                        "SELECT * FROM vehicles WHERE id = ? AND companyId = ?",
+                        (vehicle_id, company_id),
+                    ).fetchone()
+                    if current is None:
+                        self.send_json({"error": "Veículo não encontrado."}, 404)
+                        return
+                    data["createdAt"] = current["createdAt"]
+                    assignments = ", ".join([f"{column} = ?" for column in VEHICLE_COLUMNS])
+                    conn.execute(
+                        f"UPDATE vehicles SET {assignments} WHERE id = ? AND companyId = ?",
+                        [data[column] for column in VEHICLE_COLUMNS] + [vehicle_id, company_id],
+                    )
+                    row = conn.execute(
+                        "SELECT * FROM vehicles WHERE id = ? AND companyId = ?",
+                        (vehicle_id, company_id),
+                    ).fetchone()
+                self.send_json(row_to_vehicle(row))
+                return
+
+            if parsed.path.startswith("/api/service-orders/"):
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
+                service_order_id = int(parsed.path.rsplit("/", 1)[-1])
+                data = normalize_service_order(payload)
+                data["companyId"] = company_id
+                data["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                if data["status"] in ("concluida", "entregue") and not data.get("completedAt"):
+                    data["completedAt"] = data["updatedAt"]
+                with connect() as conn:
+                    current = conn.execute(
+                        "SELECT * FROM service_orders WHERE id = ? AND companyId = ?",
+                        (service_order_id, company_id),
+                    ).fetchone()
+                    if current is None:
+                        self.send_json({"error": "Ordem de serviço não encontrada."}, 404)
+                        return
+                    data["createdAt"] = current["createdAt"]
+                    data["number"] = current["number"]
+                    assignments = ", ".join([f"{column} = ?" for column in SERVICE_ORDER_COLUMNS])
+                    conn.execute(
+                        f"UPDATE service_orders SET {assignments} WHERE id = ? AND companyId = ?",
+                        [data[column] for column in SERVICE_ORDER_COLUMNS] + [service_order_id, company_id],
+                    )
+                    row = conn.execute(
+                        "SELECT * FROM service_orders WHERE id = ? AND companyId = ?",
+                        (service_order_id, company_id),
+                    ).fetchone()
+                self.send_json(row_to_service_order(row))
+                return
+
             if parsed.path.startswith("/api/parts/"):
+                if not self.require_plan_feature(auth_user, "inventory", write=True):
+                    return
                 part_id = int(parsed.path.rsplit("/", 1)[-1])
                 with connect() as conn:
                     current = conn.execute(
@@ -1353,6 +2207,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path.startswith("/api/settings/"):
+                if not self.require_plan_feature(auth_user, "users", write=True):
+                    return
                 key = parsed.path.rsplit("/", 1)[-1]
                 with connect() as conn:
                     conn.execute(
@@ -1382,6 +2238,8 @@ class Handler(SimpleHTTPRequestHandler):
             company_id = auth_user["companyId"] if auth_user else None
 
             if parsed.path.startswith("/api/users/"):
+                if not self.require_plan_feature(auth_user, "users", write=True):
+                    return
                 user_id = int(parsed.path.rsplit("/", 1)[-1])
                 with connect() as conn:
                     conn.execute(
@@ -1392,6 +2250,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path.startswith("/api/budgets/"):
+                if not self.require_plan_feature(auth_user, "budgets", write=True):
+                    return
                 budget_id = int(parsed.path.rsplit("/", 1)[-1])
                 with connect() as conn:
                     conn.execute(
@@ -1402,6 +2262,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             if parsed.path.startswith("/api/parts/"):
+                if not self.require_plan_feature(auth_user, "inventory", write=True):
+                    return
                 part_id = int(parsed.path.rsplit("/", 1)[-1])
                 with connect() as conn:
                     conn.execute(
@@ -1417,8 +2279,13 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if APP_ENV == "production" and not DATABASE_URL:
+        raise RuntimeError("Produção exige DATABASE_URL com banco gerenciado. Use APP_ENV=staging para homologação.")
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"Ambiente: {APP_ENV}")
     print(f"Sistema rodando em http://{HOST}:{PORT}/")
     print(f"Banco SQLite: {DB_PATH}")
+    if DATABASE_URL:
+        print("DATABASE_URL configurado para migração futura.")
     server.serve_forever()

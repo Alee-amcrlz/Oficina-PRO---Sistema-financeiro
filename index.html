@@ -97,6 +97,8 @@
                   <button type="button" class="side-submenu-button" data-budget-section="pendente">Pendentes</button>
                 </div>
               </div>
+              <button type="button" class="side-submenu-button" data-view="customersView">Clientes e veículos</button>
+              <button type="button" class="side-submenu-button" data-view="serviceOrdersView">Ordens de serviço</button>
             </div>
           </div>
           <div class="nav-group" data-feature="billing">
@@ -151,6 +153,7 @@
         </header>
 
         <section id="dashboardView" class="view">
+          <div id="subscriptionSummary" class="panel subscription-summary"></div>
           <div class="metrics">
             <article>
               <span>Pendentes</span>
@@ -236,11 +239,19 @@
             <label>
               Plano
               <select id="platformCompanyPlan" required>
-                <option value="trial">Trial</option>
-                <option value="basico">Básico</option>
+                <option value="essencial">Essencial</option>
                 <option value="profissional">Profissional</option>
                 <option value="premium">Premium</option>
+                <option value="trial">Teste</option>
                 <option value="homologacao">Homologação</option>
+              </select>
+            </label>
+            <label>
+              Ciclo
+              <select id="platformCompanyBillingCycle" required>
+                <option value="monthly">Mensal</option>
+                <option value="quarterly">Trimestral</option>
+                <option value="yearly">Anual</option>
               </select>
             </label>
             <label>
@@ -292,11 +303,19 @@
               <label>
                 Plano
                 <select id="platformSubscriptionPlan" required>
-                  <option value="trial">Trial</option>
-                  <option value="basico">Básico</option>
+                  <option value="essencial">Essencial</option>
                   <option value="profissional">Profissional</option>
                   <option value="premium">Premium</option>
+                  <option value="trial">Teste</option>
                   <option value="homologacao">Homologação</option>
+                </select>
+              </label>
+              <label>
+                Ciclo
+                <select id="platformSubscriptionBillingCycle" required>
+                  <option value="monthly">Mensal</option>
+                  <option value="quarterly">Trimestral</option>
+                  <option value="yearly">Anual</option>
                 </select>
               </label>
               <label>
@@ -384,10 +403,10 @@
                 Plano
                 <select id="platformPlanFilter">
                   <option value="todos">Todos</option>
-                  <option value="trial">Trial</option>
-                  <option value="basico">Básico</option>
+                  <option value="essencial">Essencial</option>
                   <option value="profissional">Profissional</option>
                   <option value="premium">Premium</option>
+                  <option value="trial">Teste</option>
                   <option value="homologacao">Homologação</option>
                 </select>
               </label>
@@ -431,6 +450,18 @@
                   <button type="reset" class="secondary">Limpar</button>
                 </div>
               </div>
+              <label>
+                Cliente cadastrado
+                <select id="budgetCustomerSelect">
+                  <option value="">Novo cliente ou busca manual</option>
+                </select>
+              </label>
+              <label>
+                Veículo cadastrado
+                <select id="budgetVehicleSelect">
+                  <option value="">Novo veículo ou busca manual</option>
+                </select>
+              </label>
               <label>
                 Nome Completo
                 <input id="clientName" type="text" required>
@@ -569,6 +600,142 @@
               </label>
               <div id="budgetList" class="budget-list"></div>
             </div>
+          </div>
+        </section>
+
+        <section id="customersView" class="view hidden">
+          <div class="settings-layout">
+            <form id="customerForm" class="panel form-grid">
+              <div class="panel-head">
+                <div>
+                  <h2 id="customerFormTitle">Cadastrar cliente</h2>
+                  <p class="muted">Base central para histórico de atendimento e ordens de serviço.</p>
+                </div>
+                <button type="button" id="clearCustomerFormButton" class="secondary">Limpar</button>
+              </div>
+              <label>
+                Nome
+                <input id="customerName" type="text" required>
+              </label>
+              <label>
+                Telefone
+                <input id="customerPhone" type="tel" required>
+              </label>
+              <label>
+                E-mail
+                <input id="customerEmail" type="email">
+              </label>
+              <label>
+                CEP
+                <input id="customerZip" type="text">
+              </label>
+              <label>
+                Endereço
+                <input id="customerStreet" type="text">
+              </label>
+              <label>
+                Número
+                <input id="customerNumber" type="text">
+              </label>
+              <label>
+                Bairro
+                <input id="customerDistrict" type="text">
+              </label>
+              <label>
+                Estado
+                <input id="customerState" type="text" maxlength="2">
+              </label>
+              <label class="full">
+                Observações
+                <textarea id="customerNotes" rows="3"></textarea>
+              </label>
+              <button type="submit" class="primary full">Salvar cliente</button>
+              <p id="customerMessage" class="message full" aria-live="polite"></p>
+            </form>
+
+            <form id="vehicleForm" class="panel form-grid">
+              <div class="panel-head">
+                <div>
+                  <h2 id="vehicleFormTitle">Cadastrar veículo</h2>
+                  <p class="muted">Vincule o veículo ao cliente para formar histórico.</p>
+                </div>
+                <button type="button" id="clearVehicleFormButton" class="secondary">Limpar</button>
+              </div>
+              <label class="full">
+                Cliente
+                <select id="vehicleCustomer" required></select>
+              </label>
+              <label>
+                Marca
+                <input id="customerVehicleBrand" type="text">
+              </label>
+              <label>
+                Modelo
+                <input id="customerVehicleModel" type="text">
+              </label>
+              <label>
+                Ano
+                <input id="customerVehicleYear" type="text">
+              </label>
+              <label>
+                Placa
+                <input id="customerVehiclePlate" type="text" maxlength="7" required>
+              </label>
+              <label>
+                Cor
+                <input id="customerVehicleColor" type="text">
+              </label>
+              <label>
+                KM
+                <input id="customerVehicleKm" type="text">
+              </label>
+              <label class="full">
+                Observações
+                <textarea id="vehicleNotes" rows="3"></textarea>
+              </label>
+              <button type="submit" class="primary full">Salvar veículo</button>
+              <p id="vehicleMessage" class="message full" aria-live="polite"></p>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Clientes cadastrados</h2>
+                <p class="muted">Clientes, veículos vinculados e histórico operacional.</p>
+              </div>
+            </div>
+            <div id="customersTable" class="table-wrap"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Veículos cadastrados</h2>
+                <p class="muted">Consulta rápida por placa, modelo e proprietário.</p>
+              </div>
+            </div>
+            <div id="vehiclesTable" class="table-wrap"></div>
+          </div>
+        </section>
+
+        <section id="serviceOrdersView" class="view hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Ordens de serviço</h2>
+                <p class="muted">Acompanhe a execução depois que o orçamento é aprovado.</p>
+              </div>
+              <select id="serviceOrderStatusFilter">
+                <option value="todos">Todas</option>
+                <option value="aberta">Abertas</option>
+                <option value="em_andamento">Em andamento</option>
+                <option value="aguardando_peca">Aguardando peça</option>
+                <option value="concluida">Concluídas</option>
+                <option value="entregue">Entregues</option>
+              </select>
+            </div>
+            <div id="serviceOrdersTable" class="table-wrap"></div>
           </div>
         </section>
 
@@ -838,6 +1005,7 @@
           <button type="button" id="modalEditButton" class="action success">Editar orçamento</button>
           <button type="button" id="modalApproveButton" class="action success hidden">Aprovar orçamento</button>
           <button type="button" id="modalRejectButton" class="action danger hidden">Reprovar orçamento</button>
+          <button type="button" id="modalCreateOsButton" class="action success hidden">Gerar OS</button>
           <button type="button" id="modalDeleteButton" class="action danger hidden">Excluir orçamento</button>
         </div>
       </article>
