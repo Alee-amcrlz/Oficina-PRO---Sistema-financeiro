@@ -27,6 +27,7 @@ O sistema já possui:
 
 - Configuração por ambiente via `.env`.
 - Hash de senha com PBKDF2 e migração automática de hashes legados no login.
+- Sessões persistidas no banco com hash do token.
 - Isolamento multiempresa por `companyId` nas rotas principais.
 - Planos comerciais e bloqueio de recursos por plano.
 - Painel Master com auditoria.

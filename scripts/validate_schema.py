@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_COLUMNS = {
     "companies": {"id", "name", "ownerUserId", "createdAt", "updatedAt"},
     "users": {"id", "companyId", "isPlatformAdmin", "email", "passwordHash", "role", "accessLevel", "blocked"},
+    "user_sessions": {"id", "tokenHash", "userId", "expiresAt", "createdAt", "lastSeenAt"},
     "budgets": {"id", "companyId", "userId", "clientName", "parts", "labor", "status", "approvedAt"},
     "customers": {"id", "companyId", "name", "email", "phone"},
     "vehicles": {"id", "companyId", "customerId", "plate", "brand", "model"},
@@ -22,7 +23,7 @@ REQUIRED_COLUMNS = {
     "schema_migrations": {"version", "appliedAt"},
 }
 
-REQUIRED_MIGRATIONS = {"20260609_web_saas_baseline"}
+REQUIRED_MIGRATIONS = {"20260609_web_saas_baseline", "20260609_db_sessions"}
 
 
 def load_env_file(path):

@@ -12,6 +12,7 @@ EXPORT_DIR = ROOT / "exports"
 TABLES = [
     "companies",
     "users",
+    # Sessões ativas não são exportadas de propósito.
     "budgets",
     "customers",
     "vehicles",

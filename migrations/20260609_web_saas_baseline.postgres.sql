@@ -39,6 +39,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username
     WHERE username IS NOT NULL AND btrim(username) <> '';
 CREATE INDEX IF NOT EXISTS idx_users_company ON users(companyId);
 
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id BIGSERIAL PRIMARY KEY,
+    tokenHash TEXT NOT NULL UNIQUE,
+    userId BIGINT NOT NULL REFERENCES users(id),
+    expiresAt NUMERIC NOT NULL,
+    createdAt NUMERIC NOT NULL,
+    lastSeenAt NUMERIC NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(userId);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expiresAt);
+
 CREATE TABLE IF NOT EXISTS budgets (
     id BIGSERIAL PRIMARY KEY,
     companyId BIGINT REFERENCES companies(id),
@@ -256,6 +268,10 @@ CREATE INDEX IF NOT EXISTS idx_platform_audit_company ON platform_audit_log(targ
 
 INSERT INTO schema_migrations (version, appliedAt)
 VALUES ('20260609_web_saas_baseline', now()::text)
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_migrations (version, appliedAt)
+VALUES ('20260609_db_sessions', now()::text)
 ON CONFLICT (version) DO NOTHING;
 
 COMMIT;

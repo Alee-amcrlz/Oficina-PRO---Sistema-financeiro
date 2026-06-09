@@ -5,6 +5,7 @@ O projeto ainda mantém criação automática de schema em `server.py` para pres
 A partir desta etapa, o banco registra a versão:
 
 - `20260609_web_saas_baseline`
+- `20260609_db_sessions`
 
 O arquivo `20260609_web_saas_baseline.sqlite.sql` é um snapshot auditável do schema SQLite atual.
 

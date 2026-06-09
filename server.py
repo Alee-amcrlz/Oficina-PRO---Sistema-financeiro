@@ -43,7 +43,6 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = env_int("PORT", 4173)
 SESSION_TTL_SECONDS = env_int("SESSION_TTL_SECONDS", 8 * 60 * 60)
 PASSWORD_HASH_ITERATIONS = env_int("PASSWORD_HASH_ITERATIONS", 260000)
-SESSIONS = {}
 
 PLAN_CATALOG = {
     "essencial": {
@@ -271,6 +270,14 @@ AUDIT_COLUMNS = [
     "createdAt",
 ]
 
+SESSION_COLUMNS = [
+    "tokenHash",
+    "userId",
+    "expiresAt",
+    "createdAt",
+    "lastSeenAt",
+]
+
 
 def connect():
     conn = sqlite3.connect(DB_PATH)
@@ -328,22 +335,39 @@ def password_needs_rehash(stored_hash):
         return True
 
 
+def hash_token(token):
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
 def create_session(user_id):
     token = secrets.token_urlsafe(32)
-    SESSIONS[token] = {
-        "userId": int(user_id),
-        "expiresAt": time.time() + SESSION_TTL_SECONDS,
-    }
+    now = time.time()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_sessions (tokenHash, userId, expiresAt, createdAt, lastSeenAt)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (hash_token(token), int(user_id), now + SESSION_TTL_SECONDS, now, now),
+        )
     return token
 
 
 def get_session_user(token):
-    session = SESSIONS.get(token)
-    if not session:
+    token_hash = hash_token(token)
+    now = time.time()
+    with connect() as conn:
+        session = conn.execute(
+            "SELECT * FROM user_sessions WHERE tokenHash = ?",
+            (token_hash,),
+        ).fetchone()
+
+    if session is None:
         return None
 
-    if session["expiresAt"] < time.time():
-        SESSIONS.pop(token, None)
+    if float(session["expiresAt"] or 0) < now:
+        with connect() as conn:
+            conn.execute("DELETE FROM user_sessions WHERE tokenHash = ?", (token_hash,))
         return None
 
     with connect() as conn:
@@ -373,11 +397,32 @@ def get_session_user(token):
 
     user = row_to_user(row)
     if not user or user.get("blocked"):
-        SESSIONS.pop(token, None)
+        with connect() as conn:
+            conn.execute("DELETE FROM user_sessions WHERE tokenHash = ?", (token_hash,))
         return None
 
-    session["expiresAt"] = time.time() + SESSION_TTL_SECONDS
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE user_sessions
+            SET expiresAt = ?, lastSeenAt = ?
+            WHERE tokenHash = ?
+            """,
+            (now + SESSION_TTL_SECONDS, now, token_hash),
+        )
     return user
+
+
+def delete_session(token):
+    if not token:
+        return
+    with connect() as conn:
+        conn.execute("DELETE FROM user_sessions WHERE tokenHash = ?", (hash_token(token),))
+
+
+def prune_expired_sessions():
+    with connect() as conn:
+        conn.execute("DELETE FROM user_sessions WHERE expiresAt < ?", (time.time(),))
 
 
 def is_platform_admin(user):
@@ -474,6 +519,19 @@ def init_db():
                 createdAt TEXT,
                 updatedAt TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tokenHash TEXT NOT NULL UNIQUE,
+                userId INTEGER NOT NULL,
+                expiresAt REAL NOT NULL,
+                createdAt REAL NOT NULL,
+                lastSeenAt REAL NOT NULL,
+                FOREIGN KEY (userId) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(userId);
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expiresAt);
 
             CREATE TABLE IF NOT EXISTS budgets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -722,6 +780,12 @@ def init_db():
             """
             INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
             VALUES ('20260609_web_saas_baseline', datetime('now'))
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
+            VALUES ('20260609_db_sessions', datetime('now'))
             """
         )
 
@@ -1575,8 +1639,7 @@ class Handler(SimpleHTTPRequestHandler):
 
             if parsed.path == "/api/auth/logout":
                 token = self.auth_token()
-                if token:
-                    SESSIONS.pop(token, None)
+                delete_session(token)
                 self.send_json({"ok": True})
                 return
 
@@ -2282,6 +2345,7 @@ if __name__ == "__main__":
     if APP_ENV == "production" and not DATABASE_URL:
         raise RuntimeError("Produção exige DATABASE_URL com banco gerenciado. Use APP_ENV=staging para homologação.")
     init_db()
+    prune_expired_sessions()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Ambiente: {APP_ENV}")
     print(f"Sistema rodando em http://{HOST}:{PORT}/")

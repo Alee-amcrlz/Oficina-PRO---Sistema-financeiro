@@ -50,6 +50,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Backup SQLite de homologação em `python scripts/backup_sqlite.py`.
 - Guia de deploy em `docs/DEPLOY.md`.
 - Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
+- Sessões persistidas no banco com hash do token, em vez de memória do processo.
 - Headers básicos de segurança HTTP.
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Registro de baseline de schema em `schema_migrations`.
