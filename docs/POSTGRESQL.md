@@ -25,6 +25,8 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 - O `.env` já prevê `DATABASE_URL`.
 - O servidor bloqueia `APP_ENV=production` sem `DATABASE_URL`.
 - A camada SQL ainda usa comandos compatíveis com SQLite.
+- Existe baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
+- Exporte dados de homologação com `python scripts/export_sqlite_jsonl.py`.
 
 ## Decisão
 

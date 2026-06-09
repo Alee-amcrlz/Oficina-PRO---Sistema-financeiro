@@ -2,6 +2,7 @@
 *.log
 *.db-journal
 backups/
+exports/
 *.sqlite
 *.sqlite3
 __pycache__/

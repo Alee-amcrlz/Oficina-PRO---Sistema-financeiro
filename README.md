@@ -54,6 +54,8 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Registro de baseline de schema em `schema_migrations`.
 - Snapshot auditável do schema em `migrations/20260609_web_saas_baseline.sqlite.sql`.
+- Baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
+- Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
 - CI no GitHub Actions para validar sintaxe, schema, preflight e smoke API.
 
 ## Recursos incluidos
