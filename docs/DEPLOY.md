@@ -45,6 +45,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 - Configurar volume persistente para `SQLITE_PATH`.
 - Para simular staging local, usar `docker compose up --build`.
 - Rodar backup manual com `python scripts/backup_sqlite.py` antes de testes destrutivos.
+- Validar schema com `python scripts/validate_schema.py`.
 - Rodar smoke test com `python scripts/smoke_api.py`.
 - Ativar HTTPS na plataforma.
 - Usar dados fictícios.

@@ -46,12 +46,14 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Exemplo de configuração em `.env.example`.
 - `Dockerfile` e `Procfile` para deploy inicial.
 - Preflight técnico em `python scripts/preflight.py`.
+- Validação de schema em `python scripts/validate_schema.py`.
 - Backup SQLite de homologação em `python scripts/backup_sqlite.py`.
 - Guia de deploy em `docs/DEPLOY.md`.
 - Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
 - Headers básicos de segurança HTTP.
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Registro de baseline de schema em `schema_migrations`.
+- Snapshot auditável do schema em `migrations/20260609_web_saas_baseline.sqlite.sql`.
 
 ## Recursos incluidos
 
