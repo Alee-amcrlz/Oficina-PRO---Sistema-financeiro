@@ -45,6 +45,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Configuração por ambiente via `.env`.
 - Exemplo de configuração em `.env.example`.
 - `Dockerfile` e `Procfile` para deploy inicial.
+- `render.yaml` para staging controlado no Render com disco persistente.
 - Preflight técnico em `python scripts/preflight.py`.
 - Validação de schema em `python scripts/validate_schema.py`.
 - Backup SQLite de homologação em `python scripts/backup_sqlite.py`.

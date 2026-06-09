@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV APP_ENV=production
+ENV APP_ENV=local
 ENV HOST=0.0.0.0
 ENV PORT=4173
 

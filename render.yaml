@@ -1,0 +1,44 @@
+# Render Blueprint for Oficina Pro staging.
+# This is intentionally a staging deployment with SQLite on a persistent disk.
+# Production remains blocked until the PostgreSQL runtime is implemented.
+
+services:
+  - type: web
+    name: oficina-pro-staging
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: codex/oficina-pro-v1.1
+    healthCheckPath: /api/health
+    autoDeploy: false
+    disk:
+      name: oficina-pro-staging-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: SQLITE_PATH
+        value: /data/oficina.db
+      - key: SESSION_TTL_SECONDS
+        value: 28800
+      - key: PASSWORD_HASH_ITERATIONS
+        value: 260000
+      - key: LOGIN_MAX_ATTEMPTS
+        value: 5
+      - key: LOGIN_WINDOW_SECONDS
+        value: 900
+      - key: LOGIN_LOCK_SECONDS
+        value: 900
+      - key: DEFAULT_ADMIN_NAME
+        value: MASTER
+      - key: DEFAULT_ADMIN_USERNAME
+        value: master
+      - key: DEFAULT_ADMIN_EMAIL
+        sync: false
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false
