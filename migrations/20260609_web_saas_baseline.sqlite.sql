@@ -126,6 +126,28 @@ CREATE TABLE payments (
                 FOREIGN KEY (subscriptionId) REFERENCES subscriptions(id)
             );
 
+-- table: billing_checkout_requests
+CREATE TABLE billing_checkout_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                companyId INTEGER NOT NULL,
+                subscriptionId INTEGER,
+                plan TEXT NOT NULL,
+                billingCycle TEXT NOT NULL DEFAULT 'monthly',
+                provider TEXT NOT NULL,
+                providerCheckoutId TEXT,
+                initPoint TEXT,
+                sandboxInitPoint TEXT,
+                amount REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'created',
+                requestPayload TEXT NOT NULL DEFAULT '{}',
+                responsePayload TEXT NOT NULL DEFAULT '{}',
+                error TEXT,
+                createdAt TEXT,
+                updatedAt TEXT,
+                FOREIGN KEY (companyId) REFERENCES companies(id),
+                FOREIGN KEY (subscriptionId) REFERENCES subscriptions(id)
+            );
+
 -- table: billing_webhook_events
 CREATE TABLE billing_webhook_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -315,6 +337,15 @@ CREATE INDEX idx_payments_company ON payments(companyId);
 
 -- index: idx_payments_status
 CREATE INDEX idx_payments_status ON payments(status);
+
+-- index: idx_billing_checkout_company
+CREATE INDEX idx_billing_checkout_company ON billing_checkout_requests(companyId);
+
+-- index: idx_billing_checkout_created
+CREATE INDEX idx_billing_checkout_created ON billing_checkout_requests(createdAt);
+
+-- index: idx_billing_checkout_status
+CREATE INDEX idx_billing_checkout_status ON billing_checkout_requests(status);
 
 -- index: idx_billing_webhook_provider_event
 CREATE UNIQUE INDEX idx_billing_webhook_provider_event

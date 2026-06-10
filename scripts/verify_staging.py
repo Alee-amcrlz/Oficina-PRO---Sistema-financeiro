@@ -72,8 +72,9 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     smoke_api = os.path.join(root, "scripts", "smoke_api.py")
     smoke_multiempresa = os.path.join(root, "scripts", "smoke_multiempresa.py")
+    smoke_billing_checkout = os.path.join(root, "scripts", "smoke_billing_checkout.py")
 
-    for script in (smoke_api, smoke_multiempresa):
+    for script in (smoke_api, smoke_multiempresa, smoke_billing_checkout):
         code = run_script(script, env)
         if code != 0:
             return code

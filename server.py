@@ -1,6 +1,8 @@
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from urllib import error as url_error
+from urllib import request as url_request
 from decimal import Decimal
 import hashlib
 import hmac
@@ -161,6 +163,7 @@ REQUIRED_SCHEMA_COLUMNS = {
     "accounts_payable": {"id", "companyId", "description", "supplierName", "amount"},
     "subscriptions": {"id", "companyId", "plan", "status", "billingCycle", "currentPeriodEnd"},
     "payments": {"id", "companyId", "subscriptionId", "provider", "amount", "status"},
+    "billing_checkout_requests": {"id", "companyId", "subscriptionId", "plan", "billingCycle", "provider", "amount", "status"},
     "billing_webhook_events": {"id", "provider", "eventId", "eventType", "action", "resourceId", "requestId", "payload", "receivedAt"},
     "platform_audit_log": {"id", "actorUserId", "action", "targetCompanyId", "details", "createdAt"},
     "schema_migrations": {"version", "appliedAt"},
@@ -171,6 +174,7 @@ REQUIRED_SCHEMA_MIGRATIONS = {
     "20260609_db_sessions",
     "20260609_login_audit",
     "20260610_billing_webhooks",
+    "20260610_billing_checkout_requests",
 }
 
 DEFAULT_ACCESS_LEVELS = {
@@ -359,6 +363,24 @@ PAYMENT_COLUMNS = [
     "updatedAt",
 ]
 
+BILLING_CHECKOUT_COLUMNS = [
+    "companyId",
+    "subscriptionId",
+    "plan",
+    "billingCycle",
+    "provider",
+    "providerCheckoutId",
+    "initPoint",
+    "sandboxInitPoint",
+    "amount",
+    "status",
+    "requestPayload",
+    "responsePayload",
+    "error",
+    "createdAt",
+    "updatedAt",
+]
+
 BILLING_WEBHOOK_COLUMNS = [
     "provider",
     "eventId",
@@ -468,6 +490,11 @@ POSTGRES_ROW_NAME_ALIASES = {
         "currentPeriodEnd",
         "trialEndsAt",
         "providerPaymentId",
+        "providerCheckoutId",
+        "initPoint",
+        "sandboxInitPoint",
+        "requestPayload",
+        "responsePayload",
         "eventId",
         "eventType",
         "resourceId",
@@ -1306,6 +1333,31 @@ def init_db():
                 FOREIGN KEY (subscriptionId) REFERENCES subscriptions(id)
             );
 
+            CREATE TABLE IF NOT EXISTS billing_checkout_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                companyId INTEGER NOT NULL,
+                subscriptionId INTEGER,
+                plan TEXT NOT NULL,
+                billingCycle TEXT NOT NULL DEFAULT 'monthly',
+                provider TEXT NOT NULL,
+                providerCheckoutId TEXT,
+                initPoint TEXT,
+                sandboxInitPoint TEXT,
+                amount REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'created',
+                requestPayload TEXT NOT NULL DEFAULT '{}',
+                responsePayload TEXT NOT NULL DEFAULT '{}',
+                error TEXT,
+                createdAt TEXT,
+                updatedAt TEXT,
+                FOREIGN KEY (companyId) REFERENCES companies(id),
+                FOREIGN KEY (subscriptionId) REFERENCES subscriptions(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_billing_checkout_company ON billing_checkout_requests(companyId);
+            CREATE INDEX IF NOT EXISTS idx_billing_checkout_status ON billing_checkout_requests(status);
+            CREATE INDEX IF NOT EXISTS idx_billing_checkout_created ON billing_checkout_requests(createdAt);
+
             CREATE TABLE IF NOT EXISTS billing_webhook_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 provider TEXT NOT NULL,
@@ -1397,6 +1449,12 @@ def init_db():
             """
             INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
             VALUES ('20260610_billing_webhooks', datetime('now'))
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
+            VALUES ('20260610_billing_checkout_requests', datetime('now'))
             """
         )
 
@@ -1585,6 +1643,10 @@ def row_to_payment(row):
     return dict(row) if row is not None else None
 
 
+def row_to_checkout_request(row):
+    return dict(row) if row is not None else None
+
+
 def normalize_user(payload, existing=None):
     data = {key: payload.get(key) for key in USER_COLUMNS}
     data["email"] = str(data.get("email") or "").lower().strip()
@@ -1720,6 +1782,138 @@ def normalize_payment(payload):
     data["amount"] = float(data.get("amount") or 0)
     data["status"] = str(data.get("status") or "pending").strip()
     return data
+
+
+def normalize_checkout_plan(payload):
+    plan = normalize_plan_code(payload.get("plan"))
+    if plan in {"trial", "homologacao"}:
+        raise ValueError("Escolha um plano comercial para contratação.")
+    cycle = normalize_billing_cycle(payload.get("billingCycle"))
+    plan_info = plan_payload(plan, cycle)
+    amount = float(plan_info["currentPrice"] or 0)
+    if amount <= 0:
+        raise ValueError("Plano sem valor comercial não pode gerar cobrança.")
+    return plan, cycle, plan_info, amount
+
+
+def latest_company_subscription(conn, company_id):
+    return conn.execute(
+        """
+        SELECT * FROM subscriptions
+        WHERE companyId = ?
+        ORDER BY datetime(createdAt) DESC, id DESC
+        LIMIT 1
+        """,
+        (company_id,),
+    ).fetchone()
+
+
+def billing_cycle_frequency(cycle):
+    return {"monthly": 1, "quarterly": 3, "yearly": 12}.get(normalize_billing_cycle(cycle), 1)
+
+
+def app_return_url(path="/"):
+    base = PUBLIC_APP_URL or f"http://{HOST}:{PORT}"
+    return f"{base.rstrip('/')}{path}"
+
+
+def mercadopago_preapproval_payload(user, plan_info):
+    cycle = normalize_billing_cycle(plan_info.get("billingCycle"))
+    return {
+        "reason": f"Oficina Pro - {plan_info['name']} {BILLING_CYCLES[cycle]}",
+        "external_reference": f"company:{user['companyId']}:plan:{plan_info['code']}:cycle:{cycle}",
+        "payer_email": user.get("email") or "",
+        "back_url": app_return_url("/?billing=return"),
+        "auto_recurring": {
+            "frequency": billing_cycle_frequency(cycle),
+            "frequency_type": "months",
+            "transaction_amount": float(plan_info["currentPrice"]),
+            "currency_id": "BRL",
+        },
+    }
+
+
+def mercadopago_api_post(path, payload):
+    if not MERCADOPAGO_ACCESS_TOKEN:
+        raise RuntimeError("MERCADOPAGO_ACCESS_TOKEN não configurado.")
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = url_request.Request(
+        f"https://api.mercadopago.com{path}",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {MERCADOPAGO_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with url_request.urlopen(req, timeout=20) as response:
+            content = response.read().decode("utf-8")
+            return json.loads(content or "{}")
+    except url_error.HTTPError as exc:
+        content = exc.read().decode("utf-8")
+        try:
+            details = json.loads(content or "{}")
+        except json.JSONDecodeError:
+            details = {"error": content}
+        raise RuntimeError(f"Mercado Pago recusou a solicitação: HTTP {exc.code} {details}") from exc
+
+
+def create_billing_checkout_request(conn, user, payload):
+    plan, cycle, plan_info, amount = normalize_checkout_plan(payload)
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    subscription = latest_company_subscription(conn, user["companyId"])
+    subscription_id = subscription["id"] if subscription else None
+    provider = "mercadopago" if BILLING_PROVIDER == "mercadopago" else "manual"
+    request_payload = {}
+    response_payload = {}
+    provider_checkout_id = ""
+    init_point = ""
+    sandbox_init_point = ""
+    status = "manual_pending"
+    error = ""
+
+    if provider == "mercadopago":
+        request_payload = mercadopago_preapproval_payload(user, plan_info)
+        try:
+            response_payload = mercadopago_api_post("/preapproval", request_payload)
+            provider_checkout_id = str(response_payload.get("id") or "")
+            init_point = str(response_payload.get("init_point") or "")
+            sandbox_init_point = str(response_payload.get("sandbox_init_point") or "")
+            status = "provider_pending"
+        except RuntimeError as exc:
+            response_payload = {"error": str(exc)}
+            status = "provider_error"
+            error = str(exc)
+
+    data = {
+        "companyId": user["companyId"],
+        "subscriptionId": subscription_id,
+        "plan": plan,
+        "billingCycle": cycle,
+        "provider": provider,
+        "providerCheckoutId": provider_checkout_id,
+        "initPoint": init_point,
+        "sandboxInitPoint": sandbox_init_point,
+        "amount": amount,
+        "status": status,
+        "requestPayload": json.dumps(request_payload, ensure_ascii=False, sort_keys=True),
+        "responsePayload": json.dumps(response_payload, ensure_ascii=False, sort_keys=True),
+        "error": error,
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    columns = ", ".join(BILLING_CHECKOUT_COLUMNS)
+    marks = ", ".join(["?"] * len(BILLING_CHECKOUT_COLUMNS))
+    cursor = conn.execute(
+        f"INSERT INTO billing_checkout_requests ({columns}) VALUES ({marks})",
+        [data[column] for column in BILLING_CHECKOUT_COLUMNS],
+    )
+    row = conn.execute(
+        "SELECT * FROM billing_checkout_requests WHERE id = ?",
+        (cursor.lastrowid,),
+    ).fetchone()
+    return row_to_checkout_request(row), plan_info
 
 
 def parse_signature_header(header):
@@ -2127,6 +2321,30 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json([row_to_payment(row) for row in rows])
                 return
 
+            if path == "/api/platform/checkout-requests":
+                if not is_platform_admin(auth_user):
+                    self.send_json({"error": "Acesso restrito ao painel master."}, 403)
+                    return
+
+                limit = int(query.get("limit", ["50"])[0] or 50)
+                limit = min(max(limit, 1), 100)
+                with connect() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT
+                            billing_checkout_requests.*,
+                            companies.name AS companyName,
+                            companies.document AS companyDocument
+                        FROM billing_checkout_requests
+                        JOIN companies ON companies.id = billing_checkout_requests.companyId
+                        ORDER BY datetime(billing_checkout_requests.createdAt) DESC, billing_checkout_requests.id DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                self.send_json([row_to_checkout_request(row) for row in rows])
+                return
+
             if path == "/api/platform/audit":
                 if not is_platform_admin(auth_user):
                     self.send_json({"error": "Acesso restrito ao painel master."}, 403)
@@ -2438,6 +2656,45 @@ class Handler(SimpleHTTPRequestHandler):
                 if auth_user is None:
                     return
             company_id = auth_user["companyId"] if auth_user else None
+
+            if parsed.path == "/api/subscription/checkout":
+                if is_platform_admin(auth_user):
+                    self.send_json({"error": "Painel master não contrata plano de cliente."}, 403)
+                    return
+
+                try:
+                    with connect() as conn:
+                        checkout, plan_info = create_billing_checkout_request(conn, auth_user, payload)
+                        log_platform_audit(
+                            conn,
+                            auth_user,
+                            "billing.checkout.requested",
+                            "billing_checkout_request",
+                            checkout["id"],
+                            company_id,
+                            {
+                                "plan": checkout["plan"],
+                                "billingCycle": checkout["billingCycle"],
+                                "provider": checkout["provider"],
+                                "status": checkout["status"],
+                                "amount": checkout["amount"],
+                            },
+                        )
+                except ValueError as exc:
+                    self.send_json({"error": str(exc)}, 400)
+                    return
+
+                response = {
+                    "checkout": checkout,
+                    "plan": plan_info,
+                    "message": "Solicitação de contratação registrada.",
+                }
+                if checkout.get("status") == "provider_error":
+                    response["error"] = checkout.get("error") or "Falha ao criar checkout no provedor."
+                    self.send_json(response, 502)
+                    return
+                self.send_json(response, 201)
+                return
 
             if parsed.path == "/api/platform/subscriptions":
                 if not is_platform_admin(auth_user):

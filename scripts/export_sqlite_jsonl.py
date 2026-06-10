@@ -24,6 +24,7 @@ TABLES = [
     "accounts_payable",
     "subscriptions",
     "payments",
+    # Solicitações de checkout são trilha operacional do ambiente e não entram no pacote de migração.
     # Eventos de webhook são trilha operacional do ambiente e não entram no pacote de migração.
     "platform_audit_log",
     "schema_migrations",

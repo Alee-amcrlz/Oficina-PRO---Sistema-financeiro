@@ -27,7 +27,7 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 - `APP_ENV=production` exige `DATABASE_URL` com PostgreSQL gerenciado.
 - A camada de compatibilidade traduz placeholders e alguns trechos SQLite usados pelas rotas atuais.
 - O CI sobe um PostgreSQL real e roda smoke API/multiempresa com `DATABASE_URL`.
-- O CI também valida a entrada de webhook Mercado Pago em PostgreSQL.
+- O CI também valida checkout de assinatura e entrada de webhook Mercado Pago em PostgreSQL.
 - `/api/ready` valida conexão, tabelas, colunas críticas e migrações aplicadas.
 - `/api/ready` também valida configuração mínima de cobrança em produção.
 - Existe baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
@@ -46,7 +46,8 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 7. Rodar `python scripts/import_jsonl_to_postgres.py --export-dir exports/sqlite-export-AAAAMMDD-HHMMSS`.
 8. Conferir contagens exibidas pelo importador.
 9. Subir o servidor com `DATABASE_URL` e rodar smoke tests contra o PostgreSQL de staging.
-10. Rodar `python scripts/smoke_billing_webhook.py` com `MERCADOPAGO_WEBHOOK_SECRET` configurado.
+10. Rodar `python scripts/smoke_billing_checkout.py`.
+11. Rodar `python scripts/smoke_billing_webhook.py` com `MERCADOPAGO_WEBHOOK_SECRET` configurado.
 
 Use `--truncate` somente em banco de staging descartável:
 

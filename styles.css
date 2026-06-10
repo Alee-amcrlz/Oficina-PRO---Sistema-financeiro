@@ -826,6 +826,21 @@ select:focus {
   margin-top: 14px;
 }
 
+.subscription-checkout {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.subscription-checkout .message {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .compact-select {
   min-width: 150px;
   min-height: 34px;
@@ -1342,6 +1357,7 @@ tbody tr:hover {
   .totals-box,
   .detail-grid,
   .subscription-grid,
+  .subscription-checkout,
   .platform-filters,
   .permission-grid {
     grid-template-columns: 1fr;

@@ -71,6 +71,7 @@ let payables = [];
 let platformCompanies = [];
 let platformSubscriptions = [];
 let platformPayments = [];
+let platformCheckoutRequests = [];
 let platformAudit = [];
 let planCatalog = {};
 let billingCycles = {};
@@ -270,6 +271,13 @@ async function createPlatformPayment(payment) {
   });
 }
 
+async function createSubscriptionCheckout(checkout) {
+  return api("/subscription/checkout", {
+    method: "POST",
+    body: JSON.stringify(checkout)
+  });
+}
+
 async function loadPlatformAudit() {
   platformAudit = await api("/platform/audit?limit=30");
 }
@@ -333,10 +341,11 @@ async function loadPayables() {
 
 async function loadPlatformDashboard() {
   if (!canAccess("platform")) return;
-  [platformCompanies, platformSubscriptions, platformPayments, platformAudit] = await Promise.all([
+  [platformCompanies, platformSubscriptions, platformPayments, platformCheckoutRequests, platformAudit] = await Promise.all([
     api("/platform/companies"),
     api("/platform/subscriptions"),
     api("/platform/payments"),
+    api("/platform/checkout-requests?limit=30"),
     api("/platform/audit?limit=30")
   ]);
   renderPlatformDashboard();
@@ -1083,6 +1092,19 @@ function planFeatureLabel(feature) {
   return labels[feature] || feature;
 }
 
+function commercialPlanOptions(selectedCode) {
+  return Object.values(planCatalog)
+    .filter((plan) => !["trial", "homologacao"].includes(plan.code))
+    .map((plan) => `<option value="${escapeHtml(plan.code)}" ${plan.code === selectedCode ? "selected" : ""}>${escapeHtml(plan.name)}</option>`)
+    .join("");
+}
+
+function billingCycleOptions(selectedCycle) {
+  return Object.entries(billingCycles)
+    .map(([code, label]) => `<option value="${escapeHtml(code)}" ${code === selectedCycle ? "selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+}
+
 function renderSubscriptionSummary() {
   const container = $("#subscriptionSummary");
   if (!container || !currentUser || currentUser.isPlatformAdmin) {
@@ -1094,6 +1116,8 @@ function renderSubscriptionSummary() {
   const status = currentUser.subscriptionStatus || "trial";
   const blocked = !subscriptionAllowsWrite();
   const periodEnd = currentUser.currentPeriodEnd || currentUser.trialEndsAt;
+  const selectedPlan = ["trial", "homologacao"].includes(plan.code) ? "profissional" : plan.code;
+  const selectedCycle = plan.billingCycle || "monthly";
   const features = (plan.features || [])
     .map((feature) => `<span class="chip">${escapeHtml(planFeatureLabel(feature))}</span>`)
     .join("");
@@ -1131,6 +1155,18 @@ function renderSubscriptionSummary() {
     </div>
     <div class="chip-list">${features}</div>
     ${blocked ? '<p class="message plan-warning">Assinatura irregular. Você pode consultar dados, mas alterações ficam bloqueadas até regularização.</p>' : ""}
+    <form id="subscriptionCheckoutForm" class="subscription-checkout">
+      <label>
+        Plano
+        <select id="subscriptionCheckoutPlan" required>${commercialPlanOptions(selectedPlan)}</select>
+      </label>
+      <label>
+        Ciclo
+        <select id="subscriptionCheckoutCycle" required>${billingCycleOptions(selectedCycle)}</select>
+      </label>
+      <button type="submit" class="primary">Contratar ou alterar</button>
+      <p id="subscriptionCheckoutMessage" class="message" aria-live="polite"></p>
+    </form>
   `;
 }
 
@@ -1150,6 +1186,7 @@ function renderPlatformDashboard() {
   renderPlatformActionOptions();
   renderPlatformCompaniesTable();
   renderPlatformPaymentsTable();
+  renderPlatformCheckoutRequestsTable();
   renderPlatformAuditTable();
 }
 
@@ -1275,7 +1312,9 @@ function auditActionLabel(action) {
     "company.create": "Oficina criada",
     "subscription.create": "Assinatura criada",
     "subscription.update": "Assinatura atualizada",
-    "payment.create": "Pagamento registrado"
+    "payment.create": "Pagamento registrado",
+    "billing.checkout.requested": "Contratação iniciada",
+    "billing.webhook.received": "Webhook recebido"
   };
   return labels[action] || action || "Ação";
 }
@@ -1359,6 +1398,59 @@ function renderPlatformPaymentsTable() {
           <th>Status</th>
           <th>Pago em</th>
           <th>Provedor</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function checkoutStatusLabel(status) {
+  const labels = {
+    manual_pending: "Manual pendente",
+    provider_pending: "Aguardando provedor",
+    provider_error: "Erro no provedor",
+    completed: "Concluída",
+    canceled: "Cancelada"
+  };
+  return labels[status] || status || "Criada";
+}
+
+function renderPlatformCheckoutRequestsTable() {
+  const container = $("#platformCheckoutRequestsTable");
+  if (!container) return;
+
+  if (!platformCheckoutRequests.length) {
+    container.innerHTML = '<p class="empty">Nenhuma contratação iniciada ainda.</p>';
+    return;
+  }
+
+  const rows = platformCheckoutRequests.map((item) => `
+    <tr>
+      <td>
+        <strong>${escapeHtml(item.companyName || "Empresa")}</strong><br>
+        <span class="muted">ID ${escapeHtml(item.id)}</span>
+      </td>
+      <td>${escapeHtml(item.plan || "Não definido")}</td>
+      <td>${escapeHtml(billingCycles[item.billingCycle] || item.billingCycle || "Mensal")}</td>
+      <td>${currency.format(Number(item.amount || 0))}</td>
+      <td><span class="badge ${subscriptionBadgeClass(item.status)}">${escapeHtml(checkoutStatusLabel(item.status))}</span></td>
+      <td>${escapeHtml(item.provider || "manual")}</td>
+      <td>${formatOptionalDate(item.createdAt)}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Oficina</th>
+          <th>Plano</th>
+          <th>Ciclo</th>
+          <th>Valor</th>
+          <th>Status</th>
+          <th>Provedor</th>
+          <th>Criada em</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -2818,6 +2910,28 @@ function bindEvents() {
   });
 
   $("#refreshPlatformButton")?.addEventListener("click", loadPlatformDashboard);
+  $("#subscriptionSummary")?.addEventListener("submit", async (event) => {
+    if (event.target.id !== "subscriptionCheckoutForm") return;
+    event.preventDefault();
+    const message = $("#subscriptionCheckoutMessage");
+    try {
+      const result = await createSubscriptionCheckout({
+        plan: $("#subscriptionCheckoutPlan").value,
+        billingCycle: $("#subscriptionCheckoutCycle").value
+      });
+      const checkout = result.checkout || {};
+      const targetUrl = checkout.initPoint || checkout.sandboxInitPoint;
+      if (targetUrl) {
+        setMessage(message, "Checkout criado. Abrindo pagamento em nova aba.", true);
+        window.open(targetUrl, "_blank", "noopener");
+      } else {
+        setMessage(message, "Solicitação registrada. Nossa equipe conclui a cobrança na homologação.", true);
+      }
+      if (canAccess("platform")) await loadPlatformDashboard();
+    } catch (error) {
+      setMessage(message, error.message);
+    }
+  });
   $("#clearPlatformCompanyFormButton")?.addEventListener("click", clearPlatformCompanyForm);
   ["platformStatusFilter", "platformPlanFilter", "platformSearchFilter"].forEach((id) => {
     $(`#${id}`)?.addEventListener("input", renderPlatformCompaniesTable);
