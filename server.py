@@ -343,6 +343,87 @@ LOGIN_AUDIT_COLUMNS = [
     "createdAt",
 ]
 
+POSTGRES_ROW_NAME_ALIASES = {
+    key.lower(): key
+    for key in {
+        "id",
+        "companyId",
+        "isPlatformAdmin",
+        "ownerUserId",
+        "userId",
+        "customerId",
+        "vehicleId",
+        "budgetId",
+        "subscriptionId",
+        "actorUserId",
+        "targetId",
+        "targetCompanyId",
+        "passwordHash",
+        "accessLevel",
+        "tokenHash",
+        "lastSeenAt",
+        "ipAddress",
+        "userAgent",
+        "clientName",
+        "clientEmail",
+        "clientPhone",
+        "clientZip",
+        "clientStreet",
+        "clientNumber",
+        "clientAddress",
+        "clientDistrict",
+        "clientState",
+        "vehicleBrand",
+        "vehicleModel",
+        "vehicleYear",
+        "vehicleColor",
+        "vehicleKm",
+        "laborValue",
+        "partsValue",
+        "approvedAt",
+        "entryDate",
+        "expectedDeliveryDate",
+        "completedAt",
+        "problemDescription",
+        "serviceDescription",
+        "internalNotes",
+        "totalAmount",
+        "costPrice",
+        "salePrice",
+        "stockQuantity",
+        "serialNumber",
+        "corporateName",
+        "tradeName",
+        "sellerName",
+        "competenceDate",
+        "invoiceNumber",
+        "supplierId",
+        "supplierCnpj",
+        "supplierName",
+        "billingCycle",
+        "providerCustomerId",
+        "providerSubscriptionId",
+        "currentPeriodStart",
+        "currentPeriodEnd",
+        "trialEndsAt",
+        "providerPaymentId",
+        "paidAt",
+        "createdAt",
+        "updatedAt",
+        "companyName",
+        "companyDocument",
+        "subscriptionPlan",
+        "subscriptionStatus",
+        "userCount",
+        "budgetCount",
+        "approvedBudgetCount",
+        "lastPaymentAt",
+        "targetCompanyName",
+        "vehicleCount",
+        "serviceOrderCount",
+    }
+}
+
 
 class PostgresCursor:
     def __init__(self, cursor):
@@ -371,7 +452,10 @@ class PostgresCursor:
     def _row_to_dict(self, row):
         if self.cursor.description is None:
             return row
-        names = [column.name for column in self.cursor.description]
+        names = [
+            POSTGRES_ROW_NAME_ALIASES.get(column.name, column.name)
+            for column in self.cursor.description
+        ]
         return dict(zip(names, row))
 
 
