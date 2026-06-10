@@ -628,7 +628,7 @@ def record_login_attempt(conn, login, success, reason, ip_address="", user_agent
         """,
         (
             str(login or "").lower().strip(),
-            1 if success else 0,
+            bool(success),
             str(reason or "").strip(),
             str(ip_address or "").strip(),
             str(user_agent or "").strip()[:500],
@@ -1304,8 +1304,8 @@ def normalize_user(payload, existing=None):
         data["passwordHash"] = existing["passwordHash"]
     else:
         data["passwordHash"] = ""
-    data["blocked"] = 1 if data.get("blocked") else 0
-    data["isPlatformAdmin"] = 1 if data.get("isPlatformAdmin") else 0
+    data["blocked"] = bool(data.get("blocked"))
+    data["isPlatformAdmin"] = bool(data.get("isPlatformAdmin"))
     return data
 
 
@@ -2121,9 +2121,20 @@ class Handler(SimpleHTTPRequestHandler):
                             companyId, isPlatformAdmin, name, username, email, phone,
                             passwordHash, role, accessLevel, blocked, createdAt, updatedAt
                         )
-                        VALUES (?, 0, ?, ?, ?, ?, ?, 'admin', 'administrador', 0, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'admin', 'administrador', ?, ?, ?)
                         """,
-                        (company_id, owner_name, owner_username, owner_email, owner_phone, owner_hash, now, now),
+                        (
+                            company_id,
+                            False,
+                            owner_name,
+                            owner_username,
+                            owner_email,
+                            owner_phone,
+                            owner_hash,
+                            False,
+                            now,
+                            now,
+                        ),
                     )
                     owner_id = user_cursor.lastrowid
                     conn.execute(

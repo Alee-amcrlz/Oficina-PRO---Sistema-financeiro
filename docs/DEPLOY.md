@@ -64,6 +64,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 - Validar schema com `python scripts/validate_schema.py`.
 - Rodar smoke test com `python scripts/smoke_api.py`.
 - Rodar smoke test multiempresa com `python scripts/smoke_multiempresa.py`.
+- Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
 - Testar bloqueio temporário de login com credenciais inválidas em usuário fictício.
 - Ativar HTTPS na plataforma.
 - Usar dados fictícios.

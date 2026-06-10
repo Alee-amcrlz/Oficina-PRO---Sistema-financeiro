@@ -76,3 +76,73 @@ jobs:
           if [ -f server.pid ]; then
             kill "$(cat server.pid)" || true
           fi
+
+  postgres-runtime:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: oficina
+          POSTGRES_PASSWORD: oficina
+          POSTGRES_DB: oficina_pro_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oficina -d oficina_pro_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      APP_ENV: staging
+      HOST: 0.0.0.0
+      PORT: 4173
+      DATABASE_URL: postgresql://oficina:oficina@localhost:5432/oficina_pro_ci
+      DEFAULT_ADMIN_NAME: MASTER CI
+      DEFAULT_ADMIN_USERNAME: master_ci
+      DEFAULT_ADMIN_EMAIL: master.ci@oficinapro.local
+      DEFAULT_ADMIN_PASSWORD: MasterCi@12345
+      SMOKE_MASTER_LOGIN: master.ci@oficinapro.local
+      SMOKE_MASTER_PASSWORD: MasterCi@12345
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Preflight PostgreSQL
+        run: python scripts/preflight.py
+
+      - name: Start PostgreSQL-backed server
+        run: |
+          python server.py > server-postgres.log 2>&1 &
+          echo $! > server-postgres.pid
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat server-postgres.log
+          exit 1
+
+      - name: Smoke API PostgreSQL
+        run: python scripts/smoke_api.py
+
+      - name: Smoke multiempresa PostgreSQL
+        run: python scripts/smoke_multiempresa.py
+
+      - name: Stop PostgreSQL-backed server
+        if: always()
+        run: |
+          if [ -f server-postgres.pid ]; then
+            kill "$(cat server-postgres.pid)" || true
+          fi

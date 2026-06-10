@@ -26,6 +26,7 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 - O servidor possui uma primeira camada de runtime PostgreSQL quando `DATABASE_URL` está configurado.
 - `APP_ENV=production` exige `DATABASE_URL` com PostgreSQL gerenciado.
 - A camada de compatibilidade traduz placeholders e alguns trechos SQLite usados pelas rotas atuais.
+- O CI sobe um PostgreSQL real e roda smoke API/multiempresa com `DATABASE_URL`.
 - Existe baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
 - Exporte dados de homologação com `python scripts/export_sqlite_jsonl.py`.
 - Aplique a baseline em banco PostgreSQL vazio com `python scripts/apply_postgres_baseline.py`.
