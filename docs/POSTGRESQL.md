@@ -23,10 +23,31 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 
 - O schema atual registra a baseline `20260609_web_saas_baseline`.
 - O `.env` já prevê `DATABASE_URL`.
-- O servidor bloqueia `APP_ENV=production` sem `DATABASE_URL`.
+- O servidor bloqueia `DATABASE_URL` no runtime atual para não fingir PostgreSQL enquanto ainda executa SQLite.
+- O servidor bloqueia `APP_ENV=production` até o runtime PostgreSQL real ser implementado e validado.
 - A camada SQL ainda usa comandos compatíveis com SQLite.
 - Existe baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
 - Exporte dados de homologação com `python scripts/export_sqlite_jsonl.py`.
+- Aplique a baseline em banco PostgreSQL vazio com `python scripts/apply_postgres_baseline.py`.
+- Importe uma exportação SQLite JSONL com `python scripts/import_jsonl_to_postgres.py`.
+
+## Ensaio de Migração
+
+1. Criar um banco PostgreSQL vazio em staging.
+2. Instalar dependência local apenas para o ensaio: `python -m pip install "psycopg[binary]"`.
+3. Configurar `DATABASE_URL` apontando para esse banco.
+4. Rodar `python scripts/apply_postgres_baseline.py`.
+5. Rodar `python scripts/export_sqlite_jsonl.py`.
+6. Validar o pacote exportado com `python scripts/import_jsonl_to_postgres.py --dry-run --export-dir exports/sqlite-export-AAAAMMDD-HHMMSS`.
+7. Rodar `python scripts/import_jsonl_to_postgres.py --export-dir exports/sqlite-export-AAAAMMDD-HHMMSS`.
+8. Conferir contagens exibidas pelo importador.
+9. Rodar smoke tests quando o runtime PostgreSQL do servidor estiver pronto.
+
+Use `--truncate` somente em banco de staging descartável:
+
+```powershell
+python scripts/import_jsonl_to_postgres.py --truncate
+```
 
 ## Decisão
 

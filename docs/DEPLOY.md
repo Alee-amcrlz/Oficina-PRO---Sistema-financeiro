@@ -71,6 +71,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 
 - Migrar para PostgreSQL gerenciado.
 - Implementar runtime PostgreSQL antes de liberar `APP_ENV=production`.
+- Ensaiar baseline/importação com `scripts/apply_postgres_baseline.py` e `scripts/import_jsonl_to_postgres.py`.
 - Criar rotina de backup e restauração.
 - Configurar Mercado Pago em produção.
 - Ativar webhook de assinatura.
