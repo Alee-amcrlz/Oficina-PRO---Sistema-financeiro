@@ -49,6 +49,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Preflight técnico em `python scripts/preflight.py`.
 - Validação de schema em `python scripts/validate_schema.py`.
 - Backup SQLite de homologação em `python scripts/backup_sqlite.py`.
+- Restore verificável de backup SQLite em `python scripts/restore_sqlite_backup.py`.
 - Guia de deploy em `docs/DEPLOY.md`.
 - Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
 - Sessões persistidas no banco com hash do token, em vez de memória do processo.

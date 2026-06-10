@@ -60,6 +60,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 - Manter `autoDeploy=false` no primeiro staging para revisar cada deploy manualmente.
 - Para simular staging local, usar `docker compose up --build`.
 - Rodar backup manual com `python scripts/backup_sqlite.py` antes de testes destrutivos.
+- Testar restauração em arquivo separado com `python scripts/restore_sqlite_backup.py --latest --target restore-test.db --no-safety-backup`.
 - Validar schema com `python scripts/validate_schema.py`.
 - Rodar smoke test com `python scripts/smoke_api.py`.
 - Rodar smoke test multiempresa com `python scripts/smoke_multiempresa.py`.
