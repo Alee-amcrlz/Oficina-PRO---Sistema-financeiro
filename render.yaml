@@ -1,6 +1,13 @@
-# Render Blueprint for Oficina Pro staging.
-# This is intentionally a staging deployment with SQLite on a persistent disk.
-# Production remains blocked until the PostgreSQL runtime is implemented.
+# Render Blueprint for Oficina Pro staging with managed PostgreSQL.
+# Secrets marked with sync: false must be filled in the Render dashboard.
+
+databases:
+  - name: oficina-pro-staging-db
+    plan: basic-256mb
+    region: oregon
+    databaseName: oficina_pro_staging
+    user: oficina_pro
+    diskSizeGB: 15
 
 services:
   - type: web
@@ -10,11 +17,7 @@ services:
     region: oregon
     branch: codex/oficina-pro-v1.1
     healthCheckPath: /api/health
-    autoDeploy: false
-    disk:
-      name: oficina-pro-staging-data
-      mountPath: /data
-      sizeGB: 5
+    autoDeployTrigger: "off"
     envVars:
       - key: APP_ENV
         value: staging
@@ -22,8 +25,10 @@ services:
         value: 0.0.0.0
       - key: PORT
         value: 10000
-      - key: SQLITE_PATH
-        value: /data/oficina.db
+      - key: DATABASE_URL
+        fromDatabase:
+          name: oficina-pro-staging-db
+          property: connectionString
       - key: SESSION_TTL_SECONDS
         value: 28800
       - key: PASSWORD_HASH_ITERATIONS

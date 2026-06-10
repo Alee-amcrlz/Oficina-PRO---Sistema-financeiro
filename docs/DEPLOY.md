@@ -56,8 +56,8 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 - Configurar `DEFAULT_ADMIN_EMAIL` com e-mail administrativo real.
 - Configurar `DEFAULT_ADMIN_PASSWORD` com senha forte e exclusiva.
 - Configurar volume persistente para `SQLITE_PATH`.
-- Para Render, usar `render.yaml` como blueprint de staging e preencher os segredos solicitados no painel.
-- Manter `autoDeploy=false` no primeiro staging para revisar cada deploy manualmente.
+- Para Render, usar `render.yaml` como blueprint de staging com PostgreSQL gerenciado e preencher os segredos solicitados no painel.
+- Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Para simular staging local, usar `docker compose up --build`.
 - Rodar backup manual com `python scripts/backup_sqlite.py` antes de testes destrutivos.
 - Testar restauração em arquivo separado com `python scripts/restore_sqlite_backup.py --latest --target restore-test.db --no-safety-backup`.
