@@ -1,6 +1,7 @@
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from decimal import Decimal
 import hashlib
 import hmac
 import json
@@ -1365,6 +1366,12 @@ def parse_json_array(value):
     return []
 
 
+def json_default(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def row_to_budget(row):
     if row is None:
         return None
@@ -1688,7 +1695,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def send_json(self, data, status=200):
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        body = json.dumps(data, ensure_ascii=False, default=json_default).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
