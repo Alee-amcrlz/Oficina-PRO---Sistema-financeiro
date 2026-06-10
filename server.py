@@ -2677,7 +2677,7 @@ class Handler(SimpleHTTPRequestHandler):
                                 "billingCycle": checkout["billingCycle"],
                                 "provider": checkout["provider"],
                                 "status": checkout["status"],
-                                "amount": checkout["amount"],
+                                "amount": float(checkout["amount"] or 0),
                             },
                         )
                 except ValueError as exc:
