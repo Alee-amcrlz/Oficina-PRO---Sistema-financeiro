@@ -9,6 +9,8 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      MERCADOPAGO_WEBHOOK_SECRET: ci-webhook-secret
 
     steps:
       - name: Checkout
@@ -25,7 +27,7 @@ jobs:
           node-version: "22"
 
       - name: Python syntax
-        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/restore_sqlite_backup.py scripts/smoke_api.py scripts/smoke_multiempresa.py scripts/verify_staging.py scripts/validate_schema.py scripts/export_sqlite_jsonl.py scripts/apply_postgres_baseline.py scripts/import_jsonl_to_postgres.py
+        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/restore_sqlite_backup.py scripts/smoke_api.py scripts/smoke_multiempresa.py scripts/smoke_billing_webhook.py scripts/verify_staging.py scripts/validate_schema.py scripts/export_sqlite_jsonl.py scripts/apply_postgres_baseline.py scripts/import_jsonl_to_postgres.py
 
       - name: JavaScript syntax
         run: node --check app.js
@@ -73,6 +75,9 @@ jobs:
       - name: Smoke multiempresa
         run: python scripts/smoke_multiempresa.py
 
+      - name: Smoke billing webhook
+        run: python scripts/smoke_billing_webhook.py
+
       - name: Stop server
         if: always()
         run: |
@@ -108,6 +113,7 @@ jobs:
       DEFAULT_ADMIN_PASSWORD: MasterCi@12345
       SMOKE_MASTER_LOGIN: master.ci@oficinapro.local
       SMOKE_MASTER_PASSWORD: MasterCi@12345
+      MERCADOPAGO_WEBHOOK_SECRET: ci-webhook-secret
 
     steps:
       - name: Checkout
@@ -145,6 +151,9 @@ jobs:
 
       - name: Smoke multiempresa PostgreSQL
         run: python scripts/smoke_multiempresa.py
+
+      - name: Smoke billing webhook PostgreSQL
+        run: python scripts/smoke_billing_webhook.py
 
       - name: Stop PostgreSQL-backed server
         if: always()

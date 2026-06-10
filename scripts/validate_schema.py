@@ -20,11 +20,17 @@ REQUIRED_COLUMNS = {
     "accounts_payable": {"id", "companyId", "description", "supplierName", "amount"},
     "subscriptions": {"id", "companyId", "plan", "status", "billingCycle", "currentPeriodEnd"},
     "payments": {"id", "companyId", "subscriptionId", "provider", "amount", "status"},
+    "billing_webhook_events": {"id", "provider", "eventId", "eventType", "resourceId", "requestId", "payload", "receivedAt"},
     "platform_audit_log": {"id", "actorUserId", "action", "targetCompanyId", "details", "createdAt"},
     "schema_migrations": {"version", "appliedAt"},
 }
 
-REQUIRED_MIGRATIONS = {"20260609_web_saas_baseline", "20260609_db_sessions", "20260609_login_audit"}
+REQUIRED_MIGRATIONS = {
+    "20260609_web_saas_baseline",
+    "20260609_db_sessions",
+    "20260609_login_audit",
+    "20260610_billing_webhooks",
+}
 
 
 def load_env_file(path):

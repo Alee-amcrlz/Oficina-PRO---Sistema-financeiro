@@ -46,6 +46,7 @@ O sistema já possui:
 - Planos comerciais e bloqueio de recursos por plano.
 - Painel Master com auditoria.
 - Fluxo operacional com clientes, veículos, orçamento e OS.
+- Entrada segura de webhook Mercado Pago com validação HMAC e registro idempotente dos eventos.
 
 ## Próxima fronteira técnica
 
@@ -61,6 +62,7 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.
 - Confirmar `BILLING_PROVIDER=manual` para staging sem cobrança real, ou `mercadopago` para sandbox de pagamento.
+- Se usar sandbox Mercado Pago, configurar webhook para `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
 - Conferir `/api/ready` retornando `ok=true` na URL pública.
 - Rodar verificação pública:
@@ -84,7 +86,7 @@ python scripts/verify_staging.py
 - Ensaiar baseline/importação com `scripts/apply_postgres_baseline.py` e `scripts/import_jsonl_to_postgres.py`.
 - Criar rotina de backup e restauração.
 - Configurar Mercado Pago em produção.
-- Ativar webhook de assinatura.
+- Ativar webhook em `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
 - Confirmar `BILLING_PROVIDER=mercadopago`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` e `PUBLIC_APP_URL=https://...`.
 - Ativar domínio próprio e HTTPS.
 - Rodar teste de isolamento multiempresa.

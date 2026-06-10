@@ -161,6 +161,7 @@ REQUIRED_SCHEMA_COLUMNS = {
     "accounts_payable": {"id", "companyId", "description", "supplierName", "amount"},
     "subscriptions": {"id", "companyId", "plan", "status", "billingCycle", "currentPeriodEnd"},
     "payments": {"id", "companyId", "subscriptionId", "provider", "amount", "status"},
+    "billing_webhook_events": {"id", "provider", "eventId", "eventType", "action", "resourceId", "requestId", "payload", "receivedAt"},
     "platform_audit_log": {"id", "actorUserId", "action", "targetCompanyId", "details", "createdAt"},
     "schema_migrations": {"version", "appliedAt"},
 }
@@ -169,6 +170,7 @@ REQUIRED_SCHEMA_MIGRATIONS = {
     "20260609_web_saas_baseline",
     "20260609_db_sessions",
     "20260609_login_audit",
+    "20260610_billing_webhooks",
 }
 
 DEFAULT_ACCESS_LEVELS = {
@@ -357,6 +359,21 @@ PAYMENT_COLUMNS = [
     "updatedAt",
 ]
 
+BILLING_WEBHOOK_COLUMNS = [
+    "provider",
+    "eventId",
+    "eventType",
+    "action",
+    "resourceId",
+    "requestId",
+    "signatureTs",
+    "payload",
+    "receivedAt",
+    "processedAt",
+    "status",
+    "error",
+]
+
 AUDIT_COLUMNS = [
     "actorUserId",
     "actorEmail",
@@ -451,6 +468,13 @@ POSTGRES_ROW_NAME_ALIASES = {
         "currentPeriodEnd",
         "trialEndsAt",
         "providerPaymentId",
+        "eventId",
+        "eventType",
+        "resourceId",
+        "requestId",
+        "signatureTs",
+        "receivedAt",
+        "processedAt",
         "paidAt",
         "createdAt",
         "updatedAt",
@@ -1282,6 +1306,27 @@ def init_db():
                 FOREIGN KEY (subscriptionId) REFERENCES subscriptions(id)
             );
 
+            CREATE TABLE IF NOT EXISTS billing_webhook_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                eventId TEXT,
+                eventType TEXT,
+                action TEXT,
+                resourceId TEXT,
+                requestId TEXT,
+                signatureTs TEXT,
+                payload TEXT NOT NULL DEFAULT '{}',
+                receivedAt TEXT,
+                processedAt TEXT,
+                status TEXT NOT NULL DEFAULT 'received',
+                error TEXT
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_webhook_provider_event
+                ON billing_webhook_events(provider, eventId)
+                WHERE eventId IS NOT NULL AND trim(eventId) <> '';
+            CREATE INDEX IF NOT EXISTS idx_billing_webhook_received ON billing_webhook_events(receivedAt);
+
             CREATE TABLE IF NOT EXISTS platform_audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 actorUserId INTEGER,
@@ -1346,6 +1391,12 @@ def init_db():
             """
             INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
             VALUES ('20260609_login_audit', datetime('now'))
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
+            VALUES ('20260610_billing_webhooks', datetime('now'))
             """
         )
 
@@ -1669,6 +1720,102 @@ def normalize_payment(payload):
     data["amount"] = float(data.get("amount") or 0)
     data["status"] = str(data.get("status") or "pending").strip()
     return data
+
+
+def parse_signature_header(header):
+    parts = {}
+    for raw_part in str(header or "").split(","):
+        if "=" not in raw_part:
+            continue
+        key, value = raw_part.split("=", 1)
+        parts[key.strip()] = value.strip()
+    return parts
+
+
+def mercadopago_resource_id(payload, query):
+    data_id = (query.get("data.id") or query.get("id") or [""])[0]
+    if not data_id and isinstance(payload.get("data"), dict):
+        data_id = payload["data"].get("id") or ""
+    return str(data_id or "").strip()
+
+
+def mercadopago_signature_template(resource_id, request_id, timestamp):
+    parts = []
+    if resource_id:
+        parts.append(f"id:{resource_id.lower()}")
+    if request_id:
+        parts.append(f"request-id:{request_id}")
+    if timestamp:
+        parts.append(f"ts:{timestamp}")
+    return ";".join(parts) + (";" if parts else "")
+
+
+def verify_mercadopago_signature(payload, query, headers):
+    if not MERCADOPAGO_WEBHOOK_SECRET:
+        return False, "MERCADOPAGO_WEBHOOK_SECRET não configurado."
+    signature = parse_signature_header(headers.get("x-signature", ""))
+    timestamp = signature.get("ts", "")
+    received_hash = signature.get("v1", "")
+    request_id = str(headers.get("x-request-id", "")).strip()
+    resource_id = mercadopago_resource_id(payload, query)
+    if not timestamp or not received_hash or not request_id or not resource_id:
+        return False, "Assinatura Mercado Pago incompleta."
+    template = mercadopago_signature_template(resource_id, request_id, timestamp)
+    expected_hash = hmac.new(
+        MERCADOPAGO_WEBHOOK_SECRET.encode("utf-8"),
+        template.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected_hash, received_hash):
+        return False, "Assinatura Mercado Pago inválida."
+    return True, ""
+
+
+def store_billing_webhook_event(conn, provider, payload, query, headers):
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    resource_id = mercadopago_resource_id(payload, query)
+    event_id = str(payload.get("id") or "").strip()
+    event_type = str(payload.get("type") or query.get("type", [""])[0] or "").strip()
+    action = str(payload.get("action") or "").strip()
+    if not event_id:
+        event_id = f"{event_type}:{resource_id}:{action}".strip(":")
+    request_id = str(headers.get("x-request-id", "")).strip()
+    signature_ts = parse_signature_header(headers.get("x-signature", "")).get("ts", "")
+
+    existing = None
+    if event_id:
+        existing = conn.execute(
+            "SELECT * FROM billing_webhook_events WHERE provider = ? AND eventId = ?",
+            (provider, event_id),
+        ).fetchone()
+    if existing:
+        return dict(existing), False
+
+    data = {
+        "provider": provider,
+        "eventId": event_id,
+        "eventType": event_type,
+        "action": action,
+        "resourceId": resource_id,
+        "requestId": request_id,
+        "signatureTs": signature_ts,
+        "payload": json.dumps(payload or {}, ensure_ascii=False, sort_keys=True),
+        "receivedAt": now,
+        "processedAt": None,
+        "status": "received",
+        "error": "",
+    }
+    columns = ", ".join(BILLING_WEBHOOK_COLUMNS)
+    marks = ", ".join(["?"] * len(BILLING_WEBHOOK_COLUMNS))
+    cursor = conn.execute(
+        f"INSERT INTO billing_webhook_events ({columns}) VALUES ({marks})",
+        [data[column] for column in BILLING_WEBHOOK_COLUMNS],
+    )
+    row = conn.execute(
+        "SELECT * FROM billing_webhook_events WHERE id = ?",
+        (cursor.lastrowid,),
+    ).fetchone()
+    return dict(row), True
 
 
 def row_to_audit(row):
@@ -2179,6 +2326,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
         payload = self.read_json()
 
         try:
@@ -2246,6 +2394,42 @@ class Handler(SimpleHTTPRequestHandler):
                 token = self.auth_token()
                 delete_session(token)
                 self.send_json({"ok": True})
+                return
+
+            if parsed.path == "/api/billing/webhooks/mercadopago":
+                valid, message = verify_mercadopago_signature(payload, query, self.headers)
+                if not valid:
+                    self.send_json({"error": message}, 401)
+                    return
+
+                with connect() as conn:
+                    row, created = store_billing_webhook_event(conn, "mercadopago", payload, query, self.headers)
+                    if created:
+                        log_platform_audit(
+                            conn,
+                            None,
+                            "billing.webhook.received",
+                            "billing_webhook_event",
+                            row["id"],
+                            None,
+                            {
+                                "provider": row.get("provider"),
+                                "eventId": row.get("eventId"),
+                                "eventType": row.get("eventType"),
+                                "action": row.get("action"),
+                                "resourceId": row.get("resourceId"),
+                                "requestId": row.get("requestId"),
+                            },
+                        )
+                self.send_json(
+                    {
+                        "ok": True,
+                        "received": True,
+                        "duplicate": not created,
+                        "eventId": row.get("eventId"),
+                    },
+                    202,
+                )
                 return
 
             auth_user = None

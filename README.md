@@ -59,18 +59,20 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Headers básicos de segurança HTTP.
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Smoke test de isolamento multiempresa em `python scripts/smoke_multiempresa.py`.
+- Smoke test de webhook Mercado Pago em `python scripts/smoke_billing_webhook.py`.
 - Verificação de staging público em `python scripts/verify_staging.py`.
 - Registro de baseline de schema em `schema_migrations`.
 - Snapshot auditável do schema em `migrations/20260609_web_saas_baseline.sqlite.sql`.
 - Baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
 - Migrações versionadas para sessões de banco e auditoria de login.
+- Migração versionada para eventos de webhook de cobrança.
 - Backend PostgreSQL inicial no servidor com aplicação automática da baseline.
 - Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
 - Aplicação da baseline PostgreSQL em `python scripts/apply_postgres_baseline.py`.
 - Importação JSONL para PostgreSQL em `python scripts/import_jsonl_to_postgres.py`.
 - Configuração de cobrança em `docs/PAGAMENTOS.md`.
 - CI no GitHub Actions para validar sintaxe, schema, preflight e smoke API.
-- CI também sobe PostgreSQL real e roda smoke API/multiempresa com `DATABASE_URL`.
+- CI também sobe PostgreSQL real e roda smoke API/multiempresa/webhook com `DATABASE_URL`.
 
 ## Recursos incluidos
 
@@ -110,6 +112,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Fluxo de caixa contabilizando apenas orçamentos aprovados.
 - Base inicial multiempresa com empresa padrão, vínculo de usuários e filtro por `companyId` nas rotas da API.
 - Base inicial de assinatura com tabelas `subscriptions` e `payments`.
+- Entrada segura de webhook Mercado Pago com validação por assinatura e registro idempotente em `billing_webhook_events`.
 - Base inicial de Painel Master via API para monitorar empresas, planos, status de assinatura e pagamentos.
 - Tela inicial de Painel Master, visível apenas para usuário plataforma, com resumo de oficinas, assinaturas e pagamentos.
 - Cadastro de nova oficina pelo Painel Master com usuário dono e assinatura inicial.

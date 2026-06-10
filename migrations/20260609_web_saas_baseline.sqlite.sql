@@ -126,6 +126,23 @@ CREATE TABLE payments (
                 FOREIGN KEY (subscriptionId) REFERENCES subscriptions(id)
             );
 
+-- table: billing_webhook_events
+CREATE TABLE billing_webhook_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                eventId TEXT,
+                eventType TEXT,
+                action TEXT,
+                resourceId TEXT,
+                requestId TEXT,
+                signatureTs TEXT,
+                payload TEXT NOT NULL DEFAULT '{}',
+                receivedAt TEXT,
+                processedAt TEXT,
+                status TEXT NOT NULL DEFAULT 'received',
+                error TEXT
+            );
+
 -- table: platform_audit_log
 CREATE TABLE platform_audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -298,6 +315,14 @@ CREATE INDEX idx_payments_company ON payments(companyId);
 
 -- index: idx_payments_status
 CREATE INDEX idx_payments_status ON payments(status);
+
+-- index: idx_billing_webhook_provider_event
+CREATE UNIQUE INDEX idx_billing_webhook_provider_event
+    ON billing_webhook_events(provider, eventId)
+    WHERE eventId IS NOT NULL AND trim(eventId) <> '';
+
+-- index: idx_billing_webhook_received
+CREATE INDEX idx_billing_webhook_received ON billing_webhook_events(receivedAt);
 
 -- index: idx_platform_audit_company
 CREATE INDEX idx_platform_audit_company ON platform_audit_log(targetCompanyId);
