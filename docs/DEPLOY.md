@@ -27,6 +27,10 @@ Variáveis principais:
 - `DEFAULT_ADMIN_USERNAME`: usuário curto do administrador inicial.
 - `DEFAULT_ADMIN_EMAIL`: e-mail do administrador inicial.
 - `DEFAULT_ADMIN_PASSWORD`: senha do administrador inicial.
+- `BILLING_PROVIDER`: `manual` em homologação ou `mercadopago` em produção.
+- `PUBLIC_APP_URL`: URL pública do sistema.
+- `MERCADOPAGO_ACCESS_TOKEN`: token do Mercado Pago.
+- `MERCADOPAGO_WEBHOOK_SECRET`: segredo usado para validar webhook.
 
 ## Estado atual
 
@@ -56,6 +60,7 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Para Render, usar `render.yaml` como blueprint de staging com PostgreSQL gerenciado e preencher os segredos solicitados no painel.
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.
+- Confirmar `BILLING_PROVIDER=manual` para staging sem cobrança real, ou `mercadopago` para sandbox de pagamento.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
 - Conferir `/api/ready` retornando `ok=true` na URL pública.
 - Rodar verificação pública:
@@ -80,6 +85,7 @@ python scripts/verify_staging.py
 - Criar rotina de backup e restauração.
 - Configurar Mercado Pago em produção.
 - Ativar webhook de assinatura.
+- Confirmar `BILLING_PROVIDER=mercadopago`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` e `PUBLIC_APP_URL=https://...`.
 - Ativar domínio próprio e HTTPS.
 - Rodar teste de isolamento multiempresa.
 - Rodar teste de restauração de backup.

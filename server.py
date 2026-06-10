@@ -52,6 +52,10 @@ DEFAULT_ADMIN_NAME = os.environ.get("DEFAULT_ADMIN_NAME", "MASTER").strip() or "
 DEFAULT_ADMIN_USERNAME = os.environ.get("DEFAULT_ADMIN_USERNAME", "master").strip() or "master"
 DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "master@oficina.local").strip().lower()
 DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "Master@123")
+BILLING_PROVIDER = os.environ.get("BILLING_PROVIDER", "manual").strip().lower() or "manual"
+MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "").strip()
+MERCADOPAGO_WEBHOOK_SECRET = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
+PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "").strip().rstrip("/")
 ONLINE_ENVS = {"staging", "production"}
 
 
@@ -65,6 +69,9 @@ def validate_runtime_config():
     if APP_ENV == "production" and not DATABASE_URL:
         failures.append("APP_ENV=production exige DATABASE_URL com PostgreSQL gerenciado.")
 
+    if BILLING_PROVIDER not in {"manual", "mercadopago"}:
+        failures.append("BILLING_PROVIDER deve ser manual ou mercadopago.")
+
     if APP_ENV in ONLINE_ENVS and HOST in {"127.0.0.1", "localhost"}:
         failures.append("HOST precisa ser 0.0.0.0 em staging/production.")
 
@@ -75,6 +82,16 @@ def validate_runtime_config():
             failures.append("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.")
         if DEFAULT_ADMIN_EMAIL == "master@oficina.local":
             failures.append("DEFAULT_ADMIN_EMAIL precisa ser um email administrativo real em ambiente online.")
+
+    if APP_ENV == "production":
+        if BILLING_PROVIDER != "mercadopago":
+            failures.append("Produção exige BILLING_PROVIDER=mercadopago.")
+        if not MERCADOPAGO_ACCESS_TOKEN:
+            failures.append("Produção exige MERCADOPAGO_ACCESS_TOKEN.")
+        if not MERCADOPAGO_WEBHOOK_SECRET:
+            failures.append("Produção exige MERCADOPAGO_WEBHOOK_SECRET.")
+        if not PUBLIC_APP_URL.startswith("https://"):
+            failures.append("Produção exige PUBLIC_APP_URL com HTTPS.")
 
     if failures:
         raise RuntimeError("Configuracao insegura:\n- " + "\n- ".join(failures))
@@ -654,11 +671,18 @@ def readiness_report():
     add_check("admin_email", not (online and DEFAULT_ADMIN_EMAIL == "master@oficina.local"), "default admin email")
     add_check("admin_password", not (online and DEFAULT_ADMIN_PASSWORD == "Master@123"), "default admin password")
     add_check("production_database", not (APP_ENV == "production" and not DATABASE_URL), "DATABASE_URL required")
+    add_check("billing_provider", BILLING_PROVIDER in {"manual", "mercadopago"}, BILLING_PROVIDER)
+    if APP_ENV == "production":
+        add_check("billing_provider_production", BILLING_PROVIDER == "mercadopago", "mercadopago required")
+        add_check("mercadopago_access_token", bool(MERCADOPAGO_ACCESS_TOKEN), "required")
+        add_check("mercadopago_webhook_secret", bool(MERCADOPAGO_WEBHOOK_SECRET), "required")
+        add_check("public_app_url", PUBLIC_APP_URL.startswith("https://"), "HTTPS required")
 
     return {
         "ok": not failures,
         "environment": APP_ENV,
         "databaseBackend": backend,
+        "billingProvider": BILLING_PROVIDER,
         "checks": checks,
     }
 

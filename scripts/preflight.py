@@ -38,6 +38,10 @@ def main():
     sqlite_path = os.environ.get("SQLITE_PATH", "oficina.db")
     default_admin_email = os.environ.get("DEFAULT_ADMIN_EMAIL", "master@oficina.local").strip().lower()
     default_admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "Master@123")
+    billing_provider = os.environ.get("BILLING_PROVIDER", "manual").strip().lower()
+    mercadopago_access_token = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "").strip()
+    mercadopago_webhook_secret = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
+    public_app_url = os.environ.get("PUBLIC_APP_URL", "").strip()
     failures = []
 
     ok(f"APP_ENV={env}")
@@ -66,6 +70,23 @@ def main():
             fail("DEFAULT_ADMIN_PASSWORD precisa ser alterada em ambiente online.", failures)
         if len(default_admin_password) < 12:
             fail("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.", failures)
+
+    if billing_provider not in {"manual", "mercadopago"}:
+        fail("BILLING_PROVIDER precisa ser manual ou mercadopago.", failures)
+    elif billing_provider == "manual" and env == "staging":
+        warn("BILLING_PROVIDER=manual em staging. Adequado apenas para homologação sem cobrança real.")
+    else:
+        ok(f"BILLING_PROVIDER={billing_provider}")
+
+    if env == "production":
+        if billing_provider != "mercadopago":
+            fail("Produção exige BILLING_PROVIDER=mercadopago.", failures)
+        if not mercadopago_access_token:
+            fail("Produção exige MERCADOPAGO_ACCESS_TOKEN.", failures)
+        if not mercadopago_webhook_secret:
+            fail("Produção exige MERCADOPAGO_WEBHOOK_SECRET.", failures)
+        if not public_app_url.startswith("https://"):
+            fail("Produção exige PUBLIC_APP_URL com HTTPS.", failures)
 
     iterations = int(os.environ.get("PASSWORD_HASH_ITERATIONS", "260000"))
     if iterations < 260000:

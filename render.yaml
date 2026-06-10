@@ -39,6 +39,10 @@ services:
         value: 900
       - key: LOGIN_LOCK_SECONDS
         value: 900
+      - key: BILLING_PROVIDER
+        value: manual
+      - key: PUBLIC_APP_URL
+        sync: false
       - key: DEFAULT_ADMIN_NAME
         value: MASTER
       - key: DEFAULT_ADMIN_USERNAME
@@ -46,4 +50,8 @@ services:
       - key: DEFAULT_ADMIN_EMAIL
         sync: false
       - key: DEFAULT_ADMIN_PASSWORD
+        sync: false
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
         sync: false

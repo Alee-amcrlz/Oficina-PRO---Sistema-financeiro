@@ -68,6 +68,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
 - Aplicação da baseline PostgreSQL em `python scripts/apply_postgres_baseline.py`.
 - Importação JSONL para PostgreSQL em `python scripts/import_jsonl_to_postgres.py`.
+- Configuração de cobrança em `docs/PAGAMENTOS.md`.
 - CI no GitHub Actions para validar sintaxe, schema, preflight e smoke API.
 - CI também sobe PostgreSQL real e roda smoke API/multiempresa com `DATABASE_URL`.
 
