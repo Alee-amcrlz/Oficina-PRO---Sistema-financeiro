@@ -45,9 +45,7 @@ O sistema já possui:
 
 ## Próxima fronteira técnica
 
-Para produção comercial, migrar o banco para PostgreSQL gerenciado antes de clientes reais.
-
-Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apenas para testes controlados.
+O próximo passo externo é criar o staging no Render a partir de `render.yaml`, preencher os segredos e validar a URL pública com os smokes.
 
 ## Checklist de staging
 
@@ -55,16 +53,19 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 - Configurar `HOST=0.0.0.0`.
 - Configurar `DEFAULT_ADMIN_EMAIL` com e-mail administrativo real.
 - Configurar `DEFAULT_ADMIN_PASSWORD` com senha forte e exclusiva.
-- Configurar volume persistente para `SQLITE_PATH`.
 - Para Render, usar `render.yaml` como blueprint de staging com PostgreSQL gerenciado e preencher os segredos solicitados no painel.
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
-- Para simular staging local, usar `docker compose up --build`.
-- Rodar backup manual com `python scripts/backup_sqlite.py` antes de testes destrutivos.
-- Testar restauração em arquivo separado com `python scripts/restore_sqlite_backup.py --latest --target restore-test.db --no-safety-backup`.
-- Validar schema com `python scripts/validate_schema.py`.
-- Rodar smoke test com `python scripts/smoke_api.py`.
-- Rodar smoke test multiempresa com `python scripts/smoke_multiempresa.py`.
+- Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
+- Rodar verificação pública:
+
+```powershell
+$env:STAGING_BASE_URL="https://oficina-pro-staging.onrender.com"
+$env:SMOKE_MASTER_LOGIN="admin@seudominio.com"
+$env:SMOKE_MASTER_PASSWORD="senha-forte-do-staging"
+python scripts/verify_staging.py
+```
+
 - Testar bloqueio temporário de login com credenciais inválidas em usuário fictício.
 - Ativar HTTPS na plataforma.
 - Usar dados fictícios.

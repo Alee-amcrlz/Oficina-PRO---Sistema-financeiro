@@ -54,4 +54,4 @@ python scripts/import_jsonl_to_postgres.py --truncate
 
 Não vender para clientes reais antes desta migração.
 
-O próximo deploy recomendado é **staging online**. Para validação rápida pode usar SQLite em disco persistente com dados fictícios; para ensaio de produção, use PostgreSQL gerenciado com `DATABASE_URL`.
+O próximo deploy recomendado é **staging online com PostgreSQL gerenciado**. Depois de criar a URL pública, configure `STAGING_BASE_URL`, `SMOKE_MASTER_LOGIN` e `SMOKE_MASTER_PASSWORD`, então rode `python scripts/verify_staging.py`.
