@@ -129,6 +129,28 @@ BILLING_CYCLES = {
 
 ACTIVE_SUBSCRIPTION_STATUSES = {"trial", "active"}
 
+DEFAULT_ACCESS_LEVELS = {
+    "administrador": "Administrador",
+    "financeiro": "Financeiro",
+    "analista": "Analista",
+}
+
+DEFAULT_PERMISSIONS = {
+    "administrador": [
+        "dashboard_view",
+        "budgets_view",
+        "budgets_manage",
+        "budgets_approve",
+        "budgets_delete",
+        "inventory_view",
+        "inventory_manage",
+        "billing_view",
+        "billing_edit",
+    ],
+    "financeiro": ["dashboard_view", "billing_view"],
+    "analista": ["dashboard_view", "budgets_view", "budgets_manage"],
+}
+
 
 USER_COLUMNS = [
     "companyId",
