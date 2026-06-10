@@ -1349,15 +1349,28 @@ def row_to_user(row):
     return item
 
 
+def parse_json_array(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value or "[]")
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
 def row_to_budget(row):
     if row is None:
         return None
     item = dict(row)
     for key in ("parts", "labor"):
-        try:
-            item[key] = json.loads(item.get(key) or "[]")
-        except json.JSONDecodeError:
-            item[key] = []
+        item[key] = parse_json_array(item.get(key))
     return item
 
 
@@ -1374,10 +1387,7 @@ def row_to_service_order(row):
         return None
     item = dict(row)
     for key in ("parts", "labor"):
-        try:
-            item[key] = json.loads(item.get(key) or "[]")
-        except json.JSONDecodeError:
-            item[key] = []
+        item[key] = parse_json_array(item.get(key))
     return item
 
 
