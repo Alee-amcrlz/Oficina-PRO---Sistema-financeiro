@@ -25,7 +25,7 @@ jobs:
           node-version: "22"
 
       - name: Python syntax
-        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/smoke_api.py scripts/validate_schema.py scripts/export_sqlite_jsonl.py scripts/apply_postgres_baseline.py scripts/import_jsonl_to_postgres.py
+        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/smoke_api.py scripts/smoke_multiempresa.py scripts/validate_schema.py scripts/export_sqlite_jsonl.py scripts/apply_postgres_baseline.py scripts/import_jsonl_to_postgres.py
 
       - name: JavaScript syntax
         run: node --check app.js
@@ -60,6 +60,9 @@ jobs:
           SMOKE_TENANT_LOGIN: dono.essencial.20260608131630@oficinapro.local
           SMOKE_TENANT_PASSWORD: Teste@123
         run: python scripts/smoke_api.py
+
+      - name: Smoke multiempresa
+        run: python scripts/smoke_multiempresa.py
 
       - name: Stop server
         if: always()

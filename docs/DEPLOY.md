@@ -62,6 +62,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 - Rodar backup manual com `python scripts/backup_sqlite.py` antes de testes destrutivos.
 - Validar schema com `python scripts/validate_schema.py`.
 - Rodar smoke test com `python scripts/smoke_api.py`.
+- Rodar smoke test multiempresa com `python scripts/smoke_multiempresa.py`.
 - Testar bloqueio temporário de login com credenciais inválidas em usuário fictício.
 - Ativar HTTPS na plataforma.
 - Usar dados fictícios.
