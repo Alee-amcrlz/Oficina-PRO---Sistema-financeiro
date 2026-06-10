@@ -33,9 +33,10 @@ def login(login_name, password):
     return data
 
 
-def expect(condition, message):
+def expect(condition, message, details=None):
     if not condition:
-        raise AssertionError(message)
+        suffix = "" if details is None else f": {details}"
+        raise AssertionError(f"{message}{suffix}")
     print(f"[OK] {message}")
 
 
@@ -48,16 +49,16 @@ def main():
 
     master = login(MASTER_LOGIN, MASTER_PASSWORD)
     status, data = call("/platform/companies", token=master["token"])
-    expect(status == 200 and isinstance(data, list), "master acessa painel da plataforma")
+    expect(status == 200 and isinstance(data, list), "master acessa painel da plataforma", {"status": status, "data": data})
 
     if TENANT_LOGIN and TENANT_PASSWORD:
         tenant = login(TENANT_LOGIN, TENANT_PASSWORD)
         status, _ = call("/platform/companies", token=tenant["token"])
-        expect(status == 403, "tenant não acessa painel master")
+        expect(status == 403, "tenant não acessa painel master", {"status": status})
 
         for path in ("/budgets", "/customers", "/vehicles", "/service-orders", "/subscription/current"):
-            status, _ = call(path, token=tenant["token"])
-            expect(status == 200, f"tenant acessa {path}")
+            status, data = call(path, token=tenant["token"])
+            expect(status == 200, f"tenant acessa {path}", {"status": status, "data": data})
     else:
         print("[AVISO] Defina SMOKE_TENANT_LOGIN e SMOKE_TENANT_PASSWORD para testar isolamento de tenant.")
 
