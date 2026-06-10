@@ -23,9 +23,9 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 
 - O schema atual registra a baseline `20260609_web_saas_baseline`.
 - O `.env` já prevê `DATABASE_URL`.
-- O servidor bloqueia `DATABASE_URL` no runtime atual para não fingir PostgreSQL enquanto ainda executa SQLite.
-- O servidor bloqueia `APP_ENV=production` até o runtime PostgreSQL real ser implementado e validado.
-- A camada SQL ainda usa comandos compatíveis com SQLite.
+- O servidor possui uma primeira camada de runtime PostgreSQL quando `DATABASE_URL` está configurado.
+- `APP_ENV=production` exige `DATABASE_URL` com PostgreSQL gerenciado.
+- A camada de compatibilidade traduz placeholders e alguns trechos SQLite usados pelas rotas atuais.
 - Existe baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
 - Exporte dados de homologação com `python scripts/export_sqlite_jsonl.py`.
 - Aplique a baseline em banco PostgreSQL vazio com `python scripts/apply_postgres_baseline.py`.
@@ -41,7 +41,7 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 6. Validar o pacote exportado com `python scripts/import_jsonl_to_postgres.py --dry-run --export-dir exports/sqlite-export-AAAAMMDD-HHMMSS`.
 7. Rodar `python scripts/import_jsonl_to_postgres.py --export-dir exports/sqlite-export-AAAAMMDD-HHMMSS`.
 8. Conferir contagens exibidas pelo importador.
-9. Rodar smoke tests quando o runtime PostgreSQL do servidor estiver pronto.
+9. Subir o servidor com `DATABASE_URL` e rodar smoke tests contra o PostgreSQL de staging.
 
 Use `--truncate` somente em banco de staging descartável:
 
@@ -53,4 +53,4 @@ python scripts/import_jsonl_to_postgres.py --truncate
 
 Não vender para clientes reais antes desta migração.
 
-O próximo deploy recomendado é **staging online**, com SQLite em disco persistente, dados fictícios e backup manual/automático.
+O próximo deploy recomendado é **staging online**. Para validação rápida pode usar SQLite em disco persistente com dados fictícios; para ensaio de produção, use PostgreSQL gerenciado com `DATABASE_URL`.

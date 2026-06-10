@@ -48,9 +48,14 @@ def main():
         ok(f"HOST={host}")
 
     if database_url:
-        fail("DATABASE_URL foi configurado, mas o runtime atual ainda usa SQLite.", failures)
+        try:
+            import psycopg  # type: ignore  # noqa: F401
+        except ImportError:
+            fail('DATABASE_URL exige a dependência "psycopg[binary]".', failures)
+        else:
+            ok("DATABASE_URL configurado para PostgreSQL.")
     elif env == "production":
-        fail("APP_ENV=production esta bloqueado ate o runtime PostgreSQL ser implementado e validado.", failures)
+        fail("APP_ENV=production exige DATABASE_URL com PostgreSQL gerenciado.", failures)
     else:
         warn(f"Sem DATABASE_URL. Usando SQLite em {sqlite_path}. Adequado apenas para local/staging controlado.")
 

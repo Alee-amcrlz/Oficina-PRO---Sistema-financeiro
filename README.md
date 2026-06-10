@@ -55,7 +55,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Sessões persistidas no banco com hash do token, em vez de memória do processo.
 - Auditoria de tentativas de login com bloqueio temporário contra força bruta.
 - Usuário administrador inicial configurável por ambiente.
-- Trava de segurança para impedir produção antes do runtime PostgreSQL real.
+- Primeira camada de runtime PostgreSQL via `DATABASE_URL`.
 - Headers básicos de segurança HTTP.
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Smoke test de isolamento multiempresa em `python scripts/smoke_multiempresa.py`.
@@ -63,6 +63,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Snapshot auditável do schema em `migrations/20260609_web_saas_baseline.sqlite.sql`.
 - Baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
 - Migrações versionadas para sessões de banco e auditoria de login.
+- Backend PostgreSQL inicial no servidor com aplicação automática da baseline.
 - Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
 - Aplicação da baseline PostgreSQL em `python scripts/apply_postgres_baseline.py`.
 - Importação JSONL para PostgreSQL em `python scripts/import_jsonl_to_postgres.py`.

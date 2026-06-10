@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -60,16 +61,8 @@ def validate_runtime_config():
     if APP_ENV not in allowed_envs:
         failures.append("APP_ENV deve ser local, staging ou production.")
 
-    if DATABASE_URL:
-        failures.append(
-            "DATABASE_URL foi configurado, mas o runtime atual ainda usa SQLite. "
-            "Nao suba o servidor com uma falsa conexao PostgreSQL."
-        )
-
-    if APP_ENV == "production":
-        failures.append(
-            "APP_ENV=production esta bloqueado ate o runtime PostgreSQL ser implementado e validado."
-        )
+    if APP_ENV == "production" and not DATABASE_URL:
+        failures.append("APP_ENV=production exige DATABASE_URL com PostgreSQL gerenciado.")
 
     if APP_ENV in ONLINE_ENVS and HOST in {"127.0.0.1", "localhost"}:
         failures.append("HOST precisa ser 0.0.0.0 em staging/production.")
@@ -329,13 +322,142 @@ LOGIN_AUDIT_COLUMNS = [
 ]
 
 
+class PostgresCursor:
+    def __init__(self, cursor):
+        self.cursor = cursor
+        self.lastrowid = None
+
+    def execute(self, sql, params=None):
+        sql = normalize_postgres_sql(sql)
+        wants_id = should_return_insert_id(sql)
+        if wants_id:
+            sql = f"{sql.rstrip().rstrip(';')} RETURNING id"
+        self.cursor.execute(sql, tuple(params or ()))
+        self.lastrowid = None
+        if wants_id:
+            row = self.cursor.fetchone()
+            self.lastrowid = row[0] if row else None
+        return self
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        return self._row_to_dict(row) if row is not None else None
+
+    def fetchall(self):
+        return [self._row_to_dict(row) for row in self.cursor.fetchall()]
+
+    def _row_to_dict(self, row):
+        if self.cursor.description is None:
+            return row
+        names = [column.name for column in self.cursor.description]
+        return dict(zip(names, row))
+
+
+class PostgresConnection:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def execute(self, sql, params=None):
+        cursor = PostgresCursor(self.conn.cursor())
+        return cursor.execute(sql, params)
+
+    def executescript(self, sql):
+        with self.conn.cursor() as cursor:
+            cursor.execute(sql)
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type:
+            self.conn.rollback()
+        else:
+            self.conn.commit()
+        self.conn.close()
+
+
+def postgres_module():
+    try:
+        import psycopg  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError('DATABASE_URL exige a dependência "psycopg[binary]".') from exc
+    return psycopg
+
+
+def is_integrity_error(error):
+    if isinstance(error, sqlite3.IntegrityError):
+        return True
+    if not DATABASE_URL:
+        return False
+    try:
+        psycopg = postgres_module()
+    except RuntimeError:
+        return False
+    return isinstance(error, psycopg.errors.IntegrityError)
+
+
+def translate_placeholders(sql):
+    result = []
+    in_single = False
+    in_double = False
+    for char in sql:
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        if char == "?" and not in_single and not in_double:
+            result.append("%s")
+        else:
+            result.append(char)
+    return "".join(result)
+
+
+def normalize_postgres_sql(sql):
+    normalized = translate_placeholders(str(sql))
+    normalized = re.sub(r"datetime\(([^)]+)\)", r"\1", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+COLLATE\s+NOCASE", "", normalized, flags=re.IGNORECASE)
+    return normalized
+
+
+def should_return_insert_id(sql):
+    compact = " ".join(str(sql).strip().split())
+    return (
+        compact.upper().startswith("INSERT INTO ")
+        and " RETURNING " not in compact.upper()
+        and not re.search(r"\bON\s+CONFLICT\b", compact, flags=re.IGNORECASE)
+        and " VALUES " in compact.upper()
+    )
+
+
 def connect():
+    if DATABASE_URL:
+        psycopg = postgres_module()
+        return PostgresConnection(psycopg.connect(DATABASE_URL))
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def table_columns(conn, table):
+    if DATABASE_URL:
+        rows = conn.execute(
+            """
+            SELECT column_name AS name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = ?
+            """,
+            (table,),
+        ).fetchall()
+        return {row["name"] for row in rows}
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {row["name"] for row in rows}
 
@@ -573,7 +695,111 @@ def subscription_block_message(user):
     return f"Assinatura {status}. Regularize o plano para continuar alterando dados."
 
 
+def load_postgres_baseline_sql():
+    path = ROOT / "migrations" / "20260609_web_saas_baseline.postgres.sql"
+    sql = path.read_text(encoding="utf-8")
+    sql = re.sub(r"^\s*BEGIN;\s*$", "", sql, flags=re.IGNORECASE | re.MULTILINE)
+    sql = re.sub(r"^\s*COMMIT;\s*$", "", sql, flags=re.IGNORECASE | re.MULTILINE)
+    return sql
+
+
+def init_postgres_db():
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    with connect() as conn:
+        conn.executescript(load_postgres_baseline_sql())
+        conn.execute(
+            """
+            INSERT INTO companies (name, createdAt)
+            SELECT ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM companies)
+            """,
+            ("Oficina Pro Local", now),
+        )
+        default_company = conn.execute(
+            "SELECT id FROM companies ORDER BY id LIMIT 1"
+        ).fetchone()
+        default_company_id = int(default_company["id"])
+
+        master_exists = conn.execute(
+            "SELECT 1 FROM users WHERE lower(email) = lower(?)",
+            (DEFAULT_ADMIN_EMAIL,),
+        ).fetchone()
+        if not master_exists:
+            conn.execute(
+                """
+                INSERT INTO users (
+                    companyId, isPlatformAdmin, name, username, email, passwordHash,
+                    role, accessLevel, blocked, createdAt
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'admin', 'administrador', ?, ?)
+                """,
+                (
+                    default_company_id,
+                    True,
+                    DEFAULT_ADMIN_NAME,
+                    DEFAULT_ADMIN_USERNAME,
+                    DEFAULT_ADMIN_EMAIL,
+                    hash_password(DEFAULT_ADMIN_PASSWORD),
+                    False,
+                    now,
+                ),
+            )
+
+        conn.execute(
+            """
+            UPDATE users
+            SET username = COALESCE(NULLIF(username, ''), ?),
+                companyId = COALESCE(companyId, ?),
+                isPlatformAdmin = ?
+            WHERE lower(email) = lower(?)
+            """,
+            (DEFAULT_ADMIN_USERNAME, default_company_id, True, DEFAULT_ADMIN_EMAIL),
+        )
+        conn.execute(
+            """
+            UPDATE companies
+            SET ownerUserId = COALESCE(
+                ownerUserId,
+                (SELECT id FROM users WHERE lower(email) = lower(?) LIMIT 1)
+            )
+            WHERE id = ?
+            """,
+            (DEFAULT_ADMIN_EMAIL, default_company_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO subscriptions (companyId, plan, status, createdAt)
+            SELECT id, 'homologacao', 'trial', ?
+            FROM companies
+            WHERE NOT EXISTS (
+                SELECT 1 FROM subscriptions WHERE subscriptions.companyId = companies.id
+            )
+            """,
+            (now,),
+        )
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES ('accessLevels', ?)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (json.dumps(DEFAULT_ACCESS_LEVELS, ensure_ascii=False),),
+        )
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES ('permissions', ?)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (json.dumps(DEFAULT_PERMISSIONS, ensure_ascii=False),),
+        )
+
+
 def init_db():
+    if DATABASE_URL:
+        init_postgres_db()
+        return
+
     with connect() as conn:
         conn.executescript(
             """
@@ -2170,9 +2396,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return
 
             self.send_json({"error": "Rota não encontrada."}, 404)
-        except sqlite3.IntegrityError as error:
-            self.send_json({"error": str(error)}, 409)
         except Exception as error:
+            if is_integrity_error(error):
+                self.send_json({"error": str(error)}, 409)
+                return
             self.send_json({"error": str(error)}, 500)
 
     def do_PUT(self):

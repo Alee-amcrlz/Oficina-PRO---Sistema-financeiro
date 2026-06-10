@@ -37,7 +37,7 @@ O sistema já possui:
 - Sessões persistidas no banco com hash do token.
 - Auditoria de tentativas de login com IP, user-agent, motivo e bloqueio temporário por excesso de falhas.
 - Usuário administrador inicial configurável por ambiente.
-- Trava de runtime para impedir produção enquanto o servidor ainda usa SQLite.
+- Primeira camada de runtime PostgreSQL via `DATABASE_URL`.
 - Isolamento multiempresa por `companyId` nas rotas principais.
 - Planos comerciais e bloqueio de recursos por plano.
 - Painel Master com auditoria.
@@ -72,7 +72,7 @@ Enquanto isso, um deploy de `staging` pode usar SQLite em disco persistente apen
 ## Checklist de produção
 
 - Migrar para PostgreSQL gerenciado.
-- Implementar runtime PostgreSQL antes de liberar `APP_ENV=production`.
+- Configurar `DATABASE_URL` com PostgreSQL gerenciado antes de liberar `APP_ENV=production`.
 - Ensaiar baseline/importação com `scripts/apply_postgres_baseline.py` e `scripts/import_jsonl_to_postgres.py`.
 - Criar rotina de backup e restauração.
 - Configurar Mercado Pago em produção.
