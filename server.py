@@ -1859,6 +1859,27 @@ def mercadopago_api_post(path, payload):
         raise RuntimeError(f"Mercado Pago recusou a solicitação: HTTP {exc.code} {details}") from exc
 
 
+def mercadopago_api_get(path):
+    if not MERCADOPAGO_ACCESS_TOKEN:
+        raise RuntimeError("MERCADOPAGO_ACCESS_TOKEN não configurado.")
+    req = url_request.Request(
+        f"https://api.mercadopago.com{path}",
+        method="GET",
+        headers={"Authorization": f"Bearer {MERCADOPAGO_ACCESS_TOKEN}"},
+    )
+    try:
+        with url_request.urlopen(req, timeout=20) as response:
+            content = response.read().decode("utf-8")
+            return json.loads(content or "{}")
+    except url_error.HTTPError as exc:
+        content = exc.read().decode("utf-8")
+        try:
+            details = json.loads(content or "{}")
+        except json.JSONDecodeError:
+            details = {"error": content}
+        raise RuntimeError(f"Mercado Pago recusou a consulta: HTTP {exc.code} {details}") from exc
+
+
 def create_billing_checkout_request(conn, user, payload):
     plan, cycle, plan_info, amount = normalize_checkout_plan(payload)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -2010,6 +2031,223 @@ def store_billing_webhook_event(conn, provider, payload, query, headers):
         (cursor.lastrowid,),
     ).fetchone()
     return dict(row), True
+
+
+def parse_billing_external_reference(reference):
+    parts = str(reference or "").strip().split(":")
+    if len(parts) != 6 or parts[0] != "company" or parts[2] != "plan" or parts[4] != "cycle":
+        return {}
+    try:
+        company_id = int(parts[1])
+    except (TypeError, ValueError):
+        return {}
+    plan = normalize_plan_code(parts[3])
+    cycle = normalize_billing_cycle(parts[5])
+    if plan in {"trial", "homologacao"}:
+        return {}
+    return {"companyId": company_id, "plan": plan, "billingCycle": cycle}
+
+
+def webhook_detail_payload(provider, event_type, resource_id, payload):
+    detail = dict(payload or {})
+    if isinstance(payload.get("data"), dict):
+        detail = {**payload["data"], **detail}
+    normalized_type = str(event_type or "").lower()
+    if provider == "mercadopago" and MERCADOPAGO_ACCESS_TOKEN and resource_id:
+        if "preapproval" in normalized_type or "subscription" in normalized_type:
+            return mercadopago_api_get(f"/preapproval/{resource_id}")
+        if normalized_type == "payment":
+            return mercadopago_api_get(f"/v1/payments/{resource_id}")
+    return detail
+
+
+def billing_detail_status(detail):
+    status = str(detail.get("status") or detail.get("collection_status") or "").strip().lower()
+    action = str(detail.get("action") or "").strip().lower()
+    if not status and "authorized" in action:
+        return "authorized"
+    return status
+
+
+def billing_detail_external_reference(detail):
+    return (
+        detail.get("external_reference")
+        or detail.get("externalReference")
+        or detail.get("external_ref")
+        or ""
+    )
+
+
+def billing_detail_amount(detail, fallback=0):
+    value = (
+        detail.get("transaction_amount")
+        or detail.get("amount")
+        or detail.get("auto_recurring", {}).get("transaction_amount")
+        or fallback
+    )
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return float(fallback or 0)
+
+
+def find_checkout_for_webhook(conn, resource_id, reference):
+    if resource_id:
+        row = conn.execute(
+            """
+            SELECT * FROM billing_checkout_requests
+            WHERE providerCheckoutId = ?
+            ORDER BY datetime(createdAt) DESC, id DESC
+            LIMIT 1
+            """,
+            (resource_id,),
+        ).fetchone()
+        if row:
+            return row_to_checkout_request(row)
+
+    parsed = parse_billing_external_reference(reference)
+    if parsed:
+        row = conn.execute(
+            """
+            SELECT * FROM billing_checkout_requests
+            WHERE companyId = ? AND plan = ? AND billingCycle = ?
+            ORDER BY datetime(createdAt) DESC, id DESC
+            LIMIT 1
+            """,
+            (parsed["companyId"], parsed["plan"], parsed["billingCycle"]),
+        ).fetchone()
+        if row:
+            return row_to_checkout_request(row)
+    return None
+
+
+def date_only(value):
+    if not value:
+        return ""
+    text = str(value)
+    if "T" in text:
+        return text.split("T", 1)[0]
+    if " " in text:
+        return text.split(" ", 1)[0]
+    return text[:10]
+
+
+def activate_checkout_subscription(conn, checkout, resource_id, detail, provider):
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    current_period_start = date_only(detail.get("date_created") or detail.get("start_date")) or now
+    current_period_end = date_only(
+        detail.get("next_payment_date")
+        or detail.get("end_date")
+        or detail.get("current_period_end")
+    )
+    subscription_id = checkout.get("subscriptionId")
+    if subscription_id:
+        conn.execute(
+            """
+            UPDATE subscriptions
+            SET plan = ?, status = 'active', billingCycle = ?, provider = ?,
+                providerSubscriptionId = ?, currentPeriodStart = ?,
+                currentPeriodEnd = COALESCE(NULLIF(?, ''), currentPeriodEnd),
+                updatedAt = ?
+            WHERE id = ? AND companyId = ?
+            """,
+            (
+                checkout["plan"],
+                checkout["billingCycle"],
+                provider,
+                resource_id,
+                current_period_start,
+                current_period_end,
+                now,
+                subscription_id,
+                checkout["companyId"],
+            ),
+        )
+    else:
+        cursor = conn.execute(
+            """
+            INSERT INTO subscriptions (
+                companyId, plan, status, billingCycle, provider,
+                providerSubscriptionId, currentPeriodStart, currentPeriodEnd,
+                createdAt, updatedAt
+            )
+            VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                checkout["companyId"],
+                checkout["plan"],
+                checkout["billingCycle"],
+                provider,
+                resource_id,
+                current_period_start,
+                current_period_end,
+                now,
+                now,
+            ),
+        )
+        subscription_id = cursor.lastrowid
+
+    conn.execute(
+        """
+        UPDATE billing_checkout_requests
+        SET subscriptionId = ?, provider = ?, providerCheckoutId = COALESCE(NULLIF(providerCheckoutId, ''), ?),
+            status = 'completed', responsePayload = ?, error = '', updatedAt = ?
+        WHERE id = ?
+        """,
+        (
+            subscription_id,
+            provider,
+            resource_id,
+            json.dumps(detail or {}, ensure_ascii=False, sort_keys=True),
+            now,
+            checkout["id"],
+        ),
+    )
+    return subscription_id
+
+
+def update_webhook_processing(conn, event_id, status, error=""):
+    conn.execute(
+        """
+        UPDATE billing_webhook_events
+        SET status = ?, processedAt = ?, error = ?
+        WHERE id = ?
+        """,
+        (status, time.strftime("%Y-%m-%d %H:%M:%S"), str(error or "")[:1000], event_id),
+    )
+
+
+def process_billing_webhook_event(conn, event_row, payload, query):
+    resource_id = event_row.get("resourceId") or mercadopago_resource_id(payload, query)
+    event_type = event_row.get("eventType") or payload.get("type") or ""
+    try:
+        detail = webhook_detail_payload(event_row.get("provider"), event_type, resource_id, payload)
+        status = billing_detail_status(detail)
+        reference = billing_detail_external_reference(detail) or billing_detail_external_reference(payload)
+        approved = status in {"authorized", "active", "approved", "paid"}
+        if not approved:
+            update_webhook_processing(conn, event_row["id"], "skipped", f"Status sem liberação: {status or 'ausente'}")
+            return {"status": "skipped", "reason": status or "missing_status"}
+
+        checkout = find_checkout_for_webhook(conn, resource_id, reference)
+        if not checkout:
+            update_webhook_processing(conn, event_row["id"], "skipped", "Checkout não encontrado para o evento.")
+            return {"status": "skipped", "reason": "checkout_not_found"}
+
+        provider = event_row.get("provider") or "mercadopago"
+        subscription_id = activate_checkout_subscription(conn, checkout, resource_id, detail, provider)
+        update_webhook_processing(conn, event_row["id"], "processed")
+        return {
+            "status": "processed",
+            "checkoutId": checkout["id"],
+            "subscriptionId": subscription_id,
+            "companyId": checkout["companyId"],
+            "plan": checkout["plan"],
+            "billingCycle": checkout["billingCycle"],
+        }
+    except Exception as exc:
+        update_webhook_processing(conn, event_row["id"], "error", str(exc))
+        return {"status": "error", "error": str(exc)}
 
 
 def row_to_audit(row):
@@ -2622,7 +2860,9 @@ class Handler(SimpleHTTPRequestHandler):
 
                 with connect() as conn:
                     row, created = store_billing_webhook_event(conn, "mercadopago", payload, query, self.headers)
+                    processing = {"status": "duplicate"}
                     if created:
+                        processing = process_billing_webhook_event(conn, row, payload, query)
                         log_platform_audit(
                             conn,
                             None,
@@ -2637,14 +2877,30 @@ class Handler(SimpleHTTPRequestHandler):
                                 "action": row.get("action"),
                                 "resourceId": row.get("resourceId"),
                                 "requestId": row.get("requestId"),
+                                "processing": processing,
                             },
                         )
+                        if processing.get("status") == "processed":
+                            log_platform_audit(
+                                conn,
+                                None,
+                                "billing.reconciliation.processed",
+                                "billing_checkout_request",
+                                processing.get("checkoutId"),
+                                processing.get("companyId"),
+                                {
+                                    "subscriptionId": processing.get("subscriptionId"),
+                                    "plan": processing.get("plan"),
+                                    "billingCycle": processing.get("billingCycle"),
+                                },
+                            )
                 self.send_json(
                     {
                         "ok": True,
                         "received": True,
                         "duplicate": not created,
                         "eventId": row.get("eventId"),
+                        "processing": processing,
                     },
                     202,
                 )

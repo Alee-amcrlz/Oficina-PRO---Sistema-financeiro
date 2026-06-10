@@ -1,13 +1,17 @@
 from datetime import datetime
 from urllib import error, request
+import hashlib
+import hmac
 import json
 import os
 import sys
+import time
 
 
 BASE_URL = os.environ.get("SMOKE_BASE_URL", "http://127.0.0.1:4173/api").rstrip("/")
 MASTER_LOGIN = os.environ.get("SMOKE_MASTER_LOGIN", "master@oficina.local")
 MASTER_PASSWORD = os.environ.get("SMOKE_MASTER_PASSWORD", "Master@123")
+WEBHOOK_SECRET = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "smoke-webhook-secret")
 
 
 def call(path, method="GET", token="", payload=None):
@@ -36,6 +40,17 @@ def login(login_name, password):
     status, data = call("/auth/login", "POST", payload={"login": login_name, "password": password})
     expect(status == 200, f"login {login_name}", data)
     return data
+
+
+def mercadopago_headers(resource_id):
+    request_id = f"checkout-webhook-{int(time.time())}"
+    timestamp = str(int(time.time()))
+    template = f"id:{resource_id.lower()};request-id:{request_id};ts:{timestamp};"
+    digest = hmac.new(WEBHOOK_SECRET.encode("utf-8"), template.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {
+        "x-request-id": request_id,
+        "x-signature": f"ts={timestamp},v1={digest}",
+    }
 
 
 def main():
@@ -75,6 +90,49 @@ def main():
     checkout = data.get("checkout") or {}
     expect(checkout.get("status") == "manual_pending", "checkout fica pendente manual em homologação", checkout)
     expect(float(checkout.get("amount") or 0) > 0, "checkout registra valor comercial", checkout)
+
+    status, subscription = call("/subscription/current", token=tenant["token"])
+    expect(status == 200 and subscription.get("status") == "trial", "checkout ainda não ativa assinatura sem confirmação", subscription)
+
+    provider_id = f"smoke-preapproval-{stamp}"
+    webhook_payload = {
+        "id": f"smoke-checkout-event-{stamp}",
+        "type": "preapproval",
+        "action": "updated",
+        "status": "authorized",
+        "external_reference": f"company:{company['id']}:plan:profissional:cycle:yearly",
+        "auto_recurring": {"transaction_amount": checkout.get("amount")},
+        "data": {"id": provider_id},
+    }
+    status, data = call(
+        f"/billing/webhooks/mercadopago?data.id={provider_id}&type=preapproval",
+        "POST",
+        payload=webhook_payload,
+    )
+    expect(status == 401, "webhook sem headers Mercado Pago é recusado", data)
+
+    body = json.dumps(webhook_payload).encode("utf-8")
+    headers = {"Content-Type": "application/json", **mercadopago_headers(provider_id)}
+    req = request.Request(
+        f"{BASE_URL}/billing/webhooks/mercadopago?data.id={provider_id}&type=preapproval",
+        data=body,
+        headers=headers,
+        method="POST",
+    )
+    with request.urlopen(req, timeout=10) as response:
+        data = json.loads(response.read().decode("utf-8") or "{}")
+        status = response.status
+    expect(status == 202 and data.get("processing", {}).get("status") == "processed", "webhook aprovado processa contratação", data)
+
+    status, subscription = call("/subscription/current", token=tenant["token"])
+    expect(
+        status == 200
+        and subscription.get("status") == "active"
+        and subscription.get("plan", {}).get("code") == "profissional"
+        and subscription.get("plan", {}).get("billingCycle") == "yearly",
+        "assinatura ativa após confirmação do webhook",
+        subscription,
+    )
 
     status, data = call(
         "/subscription/checkout",

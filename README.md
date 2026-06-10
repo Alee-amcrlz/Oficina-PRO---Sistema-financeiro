@@ -116,6 +116,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Contratação ou alteração de plano pelo cliente a partir do painel "Minha assinatura".
 - Painel Master monitora contratações recentes iniciadas pelas oficinas.
 - Entrada segura de webhook Mercado Pago com validação por assinatura e registro idempotente em `billing_webhook_events`.
+- Conciliação inicial de webhook autorizado para ativar assinatura somente após confirmação segura.
 - Base inicial de Painel Master via API para monitorar empresas, planos, status de assinatura e pagamentos.
 - Tela inicial de Painel Master, visível apenas para usuário plataforma, com resumo de oficinas, assinaturas e pagamentos.
 - Cadastro de nova oficina pelo Painel Master com usuário dono e assinatura inicial.

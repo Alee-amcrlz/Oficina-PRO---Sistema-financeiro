@@ -48,6 +48,7 @@ O sistema já possui:
 - Fluxo operacional com clientes, veículos, orçamento e OS.
 - Solicitação de contratação/alteração de plano pelo cliente com rastreio no Painel Master.
 - Entrada segura de webhook Mercado Pago com validação HMAC e registro idempotente dos eventos.
+- Conciliação inicial para ativar assinatura apenas quando o webhook/preapproval vier aprovado ou autorizado.
 
 ## Próxima fronteira técnica
 
@@ -65,6 +66,7 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Confirmar `BILLING_PROVIDER=manual` para staging sem cobrança real, ou `mercadopago` para sandbox de pagamento.
 - Se usar sandbox Mercado Pago, configurar webhook para `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
 - Testar contratação pelo painel **Minha assinatura** e conferir a solicitação em **Contratações recentes** no Painel Master.
+- Confirmar no sandbox que eventos sem status aprovado/autorizado não liberam escrita.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
 - Conferir `/api/ready` retornando `ok=true` na URL pública.
 - Rodar verificação pública:

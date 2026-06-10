@@ -1314,7 +1314,8 @@ function auditActionLabel(action) {
     "subscription.update": "Assinatura atualizada",
     "payment.create": "Pagamento registrado",
     "billing.checkout.requested": "Contratação iniciada",
-    "billing.webhook.received": "Webhook recebido"
+    "billing.webhook.received": "Webhook recebido",
+    "billing.reconciliation.processed": "Conciliação processada"
   };
   return labels[action] || action || "Ação";
 }
