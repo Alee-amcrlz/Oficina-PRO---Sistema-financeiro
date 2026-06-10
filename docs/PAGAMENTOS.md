@@ -64,7 +64,9 @@ Configure no Mercado Pago a URL:
 
 O endpoint valida `x-signature` e `x-request-id` com HMAC SHA-256 usando `MERCADOPAGO_WEBHOOK_SECRET`, registra o payload em `billing_webhook_events` e trata reenvios como duplicados idempotentes.
 
-Quando o evento possui status aprovado/autorizado, ou quando a consulta ao Mercado Pago confirma esse status, o backend localiza a solicitação em `billing_checkout_requests`, marca a contratação como concluída e atualiza a assinatura para `active`. Eventos sem confirmação segura ficam como `skipped` ou `error` e não liberam acesso.
+Quando o evento possui status aprovado/autorizado, ou quando a consulta ao Mercado Pago confirma esse status, o backend localiza a solicitação em `billing_checkout_requests`, marca a contratação como concluída, atualiza a assinatura para `active` e registra um pagamento `paid` quando houver ID/valor confiável. Eventos sem confirmação segura ficam como `skipped` ou `error` e não liberam acesso.
+
+O registro de pagamento é idempotente por `provider` + `providerPaymentId`; reenvios do webhook não duplicam a cobrança no Painel Master.
 
 ## Próxima Integração
 
@@ -72,5 +74,5 @@ Antes de vender para clientes reais:
 
 - Testar checkout/preapproval no sandbox do Mercado Pago.
 - Validar o mapeamento completo dos eventos reais do Mercado Pago no sandbox.
-- Registrar `payments` automaticamente quando o evento real de pagamento aprovado trouxer ID e valor confirmados.
+- Conferir se todos os eventos reais de pagamento aprovado retornam `providerPaymentId` e valor antes da produção comercial.
 - Rodar testes com sandbox do Mercado Pago.

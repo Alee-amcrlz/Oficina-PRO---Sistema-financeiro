@@ -2081,6 +2081,9 @@ def billing_detail_external_reference(detail):
 def billing_detail_amount(detail, fallback=0):
     value = (
         detail.get("transaction_amount")
+        or detail.get("transactionAmount")
+        or detail.get("paid_amount")
+        or detail.get("paidAmount")
         or detail.get("amount")
         or detail.get("auto_recurring", {}).get("transaction_amount")
         or fallback
@@ -2130,6 +2133,67 @@ def date_only(value):
     if " " in text:
         return text.split(" ", 1)[0]
     return text[:10]
+
+
+def billing_payment_id(resource_id, detail):
+    return str(
+        detail.get("payment_id")
+        or detail.get("paymentId")
+        or detail.get("id")
+        or resource_id
+        or ""
+    ).strip()
+
+
+def payment_paid_at(detail):
+    return date_only(
+        detail.get("date_approved")
+        or detail.get("dateApproved")
+        or detail.get("money_release_date")
+        or detail.get("date_created")
+        or detail.get("createdAt")
+    ) or time.strftime("%Y-%m-%d")
+
+
+def record_approved_payment(conn, checkout, subscription_id, provider, resource_id, detail):
+    amount = billing_detail_amount(detail, checkout.get("amount") or 0)
+    if amount <= 0:
+        return None
+
+    provider_payment_id = billing_payment_id(resource_id, detail)
+    if provider_payment_id:
+        existing = conn.execute(
+            """
+            SELECT * FROM payments
+            WHERE provider = ? AND providerPaymentId = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (provider, provider_payment_id),
+        ).fetchone()
+        if existing:
+            return row_to_payment(existing)
+
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    data = {
+        "companyId": checkout["companyId"],
+        "subscriptionId": subscription_id,
+        "provider": provider,
+        "providerPaymentId": provider_payment_id,
+        "amount": amount,
+        "status": "paid",
+        "paidAt": payment_paid_at(detail),
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    columns = ", ".join(PAYMENT_COLUMNS)
+    marks = ", ".join(["?"] * len(PAYMENT_COLUMNS))
+    cursor = conn.execute(
+        f"INSERT INTO payments ({columns}) VALUES ({marks})",
+        [data[column] for column in PAYMENT_COLUMNS],
+    )
+    row = conn.execute("SELECT * FROM payments WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    return row_to_payment(row)
 
 
 def activate_checkout_subscription(conn, checkout, resource_id, detail, provider):
@@ -2236,11 +2300,13 @@ def process_billing_webhook_event(conn, event_row, payload, query):
 
         provider = event_row.get("provider") or "mercadopago"
         subscription_id = activate_checkout_subscription(conn, checkout, resource_id, detail, provider)
+        payment = record_approved_payment(conn, checkout, subscription_id, provider, resource_id, detail)
         update_webhook_processing(conn, event_row["id"], "processed")
         return {
             "status": "processed",
             "checkoutId": checkout["id"],
             "subscriptionId": subscription_id,
+            "paymentId": payment.get("id") if payment else None,
             "companyId": checkout["companyId"],
             "plan": checkout["plan"],
             "billingCycle": checkout["billingCycle"],
@@ -2890,6 +2956,7 @@ class Handler(SimpleHTTPRequestHandler):
                                 processing.get("companyId"),
                                 {
                                     "subscriptionId": processing.get("subscriptionId"),
+                                    "paymentId": processing.get("paymentId"),
                                     "plan": processing.get("plan"),
                                     "billingCycle": processing.get("billingCycle"),
                                 },

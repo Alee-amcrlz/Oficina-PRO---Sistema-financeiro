@@ -100,6 +100,8 @@ def main():
         "type": "preapproval",
         "action": "updated",
         "status": "authorized",
+        "payment_id": f"smoke-payment-{stamp}",
+        "date_approved": datetime.now().strftime("%Y-%m-%d"),
         "external_reference": f"company:{company['id']}:plan:profissional:cycle:yearly",
         "auto_recurring": {"transaction_amount": checkout.get("amount")},
         "data": {"id": provider_id},
@@ -123,6 +125,26 @@ def main():
         data = json.loads(response.read().decode("utf-8") or "{}")
         status = response.status
     expect(status == 202 and data.get("processing", {}).get("status") == "processed", "webhook aprovado processa contratação", data)
+    payment_id = data.get("processing", {}).get("paymentId")
+    expect(payment_id, "webhook aprovado registra pagamento", data)
+
+    duplicate_headers = {"Content-Type": "application/json", **mercadopago_headers(provider_id)}
+    duplicate_req = request.Request(
+        f"{BASE_URL}/billing/webhooks/mercadopago?data.id={provider_id}&type=preapproval",
+        data=body,
+        headers=duplicate_headers,
+        method="POST",
+    )
+    with request.urlopen(duplicate_req, timeout=10) as response:
+        duplicate_data = json.loads(response.read().decode("utf-8") or "{}")
+        duplicate_status = response.status
+    expect(
+        duplicate_status == 202
+        and duplicate_data.get("duplicate")
+        and duplicate_data.get("processing", {}).get("status") == "duplicate",
+        "reenvio do webhook não reprocessa pagamento",
+        duplicate_data,
+    )
 
     status, subscription = call("/subscription/current", token=tenant["token"])
     expect(
@@ -133,6 +155,10 @@ def main():
         "assinatura ativa após confirmação do webhook",
         subscription,
     )
+
+    status, payments = call("/platform/payments", token=master["token"])
+    matching_payments = [item for item in payments if item.get("providerPaymentId") == f"smoke-payment-{stamp}"]
+    expect(status == 200 and len(matching_payments) == 1, "pagamento aparece uma única vez no painel master", payments)
 
     status, data = call(
         "/subscription/checkout",
