@@ -130,6 +130,30 @@ BILLING_CYCLES = {
 
 ACTIVE_SUBSCRIPTION_STATUSES = {"trial", "active"}
 
+REQUIRED_SCHEMA_COLUMNS = {
+    "companies": {"id", "name", "ownerUserId", "createdAt", "updatedAt"},
+    "users": {"id", "companyId", "isPlatformAdmin", "email", "passwordHash", "role", "accessLevel", "blocked"},
+    "user_sessions": {"id", "tokenHash", "userId", "expiresAt", "createdAt", "lastSeenAt"},
+    "login_audit": {"id", "login", "success", "reason", "ipAddress", "userAgent", "createdAt"},
+    "budgets": {"id", "companyId", "userId", "clientName", "parts", "labor", "status", "approvedAt"},
+    "customers": {"id", "companyId", "name", "email", "phone"},
+    "vehicles": {"id", "companyId", "customerId", "plate", "brand", "model"},
+    "service_orders": {"id", "companyId", "budgetId", "customerId", "vehicleId", "number", "status", "parts", "labor", "totalAmount"},
+    "parts_inventory": {"id", "companyId", "code", "description", "stockQuantity"},
+    "suppliers": {"id", "companyId", "cnpj", "corporateName", "tradeName"},
+    "accounts_payable": {"id", "companyId", "description", "supplierName", "amount"},
+    "subscriptions": {"id", "companyId", "plan", "status", "billingCycle", "currentPeriodEnd"},
+    "payments": {"id", "companyId", "subscriptionId", "provider", "amount", "status"},
+    "platform_audit_log": {"id", "actorUserId", "action", "targetCompanyId", "details", "createdAt"},
+    "schema_migrations": {"version", "appliedAt"},
+}
+
+REQUIRED_SCHEMA_MIGRATIONS = {
+    "20260609_web_saas_baseline",
+    "20260609_db_sessions",
+    "20260609_login_audit",
+}
+
 DEFAULT_ACCESS_LEVELS = {
     "administrador": "Administrador",
     "financeiro": "Financeiro",
@@ -569,6 +593,74 @@ def table_columns(conn, table):
         return {row["name"] for row in rows}
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {row["name"] for row in rows}
+
+
+def canonical_column_names(columns):
+    return {
+        POSTGRES_ROW_NAME_ALIASES.get(str(column).lower(), str(column))
+        for column in columns
+    }
+
+
+def list_tables(conn):
+    if DATABASE_URL:
+        rows = conn.execute(
+            """
+            SELECT table_name AS name
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+            """
+        ).fetchall()
+        return {row["name"] for row in rows}
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    return {row["name"] for row in rows}
+
+
+def readiness_report():
+    checks = []
+    failures = []
+
+    def add_check(name, ok, detail=""):
+        checks.append({"name": name, "ok": bool(ok), "detail": detail})
+        if not ok:
+            failures.append(f"{name}: {detail}")
+
+    backend = "postgresql" if DATABASE_URL else "sqlite"
+    try:
+        with connect() as conn:
+            conn.execute("SELECT 1").fetchone()
+            add_check("database_connection", True, backend)
+
+            tables = list_tables(conn)
+            missing_tables = sorted(set(REQUIRED_SCHEMA_COLUMNS) - tables)
+            add_check("required_tables", not missing_tables, ", ".join(missing_tables))
+
+            for table, expected_columns in REQUIRED_SCHEMA_COLUMNS.items():
+                if table not in tables:
+                    continue
+                columns = canonical_column_names(table_columns(conn, table))
+                missing = sorted(expected_columns - columns)
+                add_check(f"columns:{table}", not missing, ", ".join(missing))
+
+            if "schema_migrations" in tables:
+                rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
+                migrations = {row["version"] for row in rows}
+                missing_migrations = sorted(REQUIRED_SCHEMA_MIGRATIONS - migrations)
+                add_check("schema_migrations", not missing_migrations, ", ".join(missing_migrations))
+    except Exception as error:
+        add_check("database_connection", False, str(error))
+
+    online = APP_ENV in ONLINE_ENVS
+    add_check("admin_email", not (online and DEFAULT_ADMIN_EMAIL == "master@oficina.local"), "default admin email")
+    add_check("admin_password", not (online and DEFAULT_ADMIN_PASSWORD == "Master@123"), "default admin password")
+    add_check("production_database", not (APP_ENV == "production" and not DATABASE_URL), "DATABASE_URL required")
+
+    return {
+        "ok": not failures,
+        "environment": APP_ENV,
+        "databaseBackend": backend,
+        "checks": checks,
+    }
 
 
 def ensure_column(conn, table, column, definition):
@@ -1742,7 +1834,16 @@ class Handler(SimpleHTTPRequestHandler):
 
         try:
             if path == "/api/health":
-                self.send_json({"ok": True, "database": str(DB_PATH)})
+                self.send_json({
+                    "ok": True,
+                    "environment": APP_ENV,
+                    "databaseBackend": "postgresql" if DATABASE_URL else "sqlite",
+                })
+                return
+
+            if path == "/api/ready":
+                report = readiness_report()
+                self.send_json(report, 200 if report["ok"] else 503)
                 return
 
             if path == "/api/plans":

@@ -75,6 +75,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 
 - Tela de login e cadastro de usuários.
 - Login validado no servidor local.
+- Health check em `/api/health` e readiness check em `/api/ready`.
 - Sessão com token temporário após o login.
 - Rotas da API protegidas por token, exceto saúde do sistema e login.
 - Senhas armazenadas com hash SHA-256.

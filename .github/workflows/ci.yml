@@ -61,6 +61,9 @@ jobs:
           cat server.log
           exit 1
 
+      - name: Ready check
+        run: curl -fsS http://127.0.0.1:4173/api/ready
+
       - name: Smoke API
         env:
           SMOKE_TENANT_LOGIN: dono.essencial.20260608131630@oficinapro.local
@@ -133,6 +136,9 @@ jobs:
           done
           cat server-postgres.log
           exit 1
+
+      - name: Ready check PostgreSQL
+        run: curl -fsS http://127.0.0.1:4173/api/ready
 
       - name: Smoke API PostgreSQL
         run: python scripts/smoke_api.py

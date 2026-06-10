@@ -57,6 +57,7 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
+- Conferir `/api/ready` retornando `ok=true` na URL pública.
 - Rodar verificação pública:
 
 ```powershell

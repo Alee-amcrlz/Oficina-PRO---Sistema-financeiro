@@ -16,9 +16,9 @@ def normalize_base_url(raw_url):
     return value
 
 
-def call_health(base_url):
+def call_json(base_url, path):
     try:
-        with request.urlopen(f"{base_url}/health", timeout=15) as response:
+        with request.urlopen(f"{base_url}{path}", timeout=15) as response:
             body = response.read().decode("utf-8")
             data = json.loads(body) if body else {}
             return response.status, data
@@ -50,11 +50,17 @@ def main():
         return 1
 
     base_url = normalize_base_url(staging_url)
-    status, data = call_health(base_url)
+    status, data = call_json(base_url, "/health")
     if status != 200 or not data.get("ok"):
         print(f"[ERRO] Health check falhou em {base_url}: {status} {data}")
         return 1
     print(f"[OK] Health check público em {base_url}")
+
+    status, data = call_json(base_url, "/ready")
+    if status != 200 or not data.get("ok"):
+        print(f"[ERRO] Readiness check falhou em {base_url}: {status} {data}")
+        return 1
+    print("[OK] Readiness check público")
 
     env = os.environ.copy()
     env["SMOKE_BASE_URL"] = base_url
