@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import urlparse
 import os
 import sys
 
@@ -28,6 +29,11 @@ def warn(message):
 
 def ok(message):
     print(f"[OK] {message}")
+
+
+def valid_public_url(value):
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def main():
@@ -65,6 +71,8 @@ def main():
         warn(f"Sem DATABASE_URL. Usando SQLite em {sqlite_path}. Adequado apenas para local/staging controlado.")
 
     if env in {"staging", "production"}:
+        if not valid_public_url(public_app_url):
+            fail("PUBLIC_APP_URL precisa ser uma URL pública válida em ambiente online.", failures)
         if default_admin_email == "master@oficina.local":
             fail("DEFAULT_ADMIN_EMAIL precisa ser alterado em ambiente online.", failures)
         if default_admin_username == "master":

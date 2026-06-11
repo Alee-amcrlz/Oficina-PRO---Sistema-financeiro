@@ -57,6 +57,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Usuário administrador inicial configurável por ambiente.
 - Primeira camada de runtime PostgreSQL via `DATABASE_URL`.
 - Headers básicos de segurança HTTP.
+- Validação de origem para escritas em ambientes online, preservando webhooks assinados.
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Smoke test de isolamento multiempresa em `python scripts/smoke_multiempresa.py`.
 - Smoke test de checkout de assinatura em `python scripts/smoke_billing_checkout.py`.

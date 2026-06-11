@@ -32,6 +32,7 @@ def main():
         {
             "APP_ENV": "staging",
             "HOST": "0.0.0.0",
+            "PUBLIC_APP_URL": "",
             "DATABASE_URL": "",
             "DEFAULT_ADMIN_USERNAME": "master",
             "DEFAULT_ADMIN_EMAIL": "master@oficina.local",
@@ -47,6 +48,7 @@ def main():
         {
             "APP_ENV": "staging",
             "HOST": "0.0.0.0",
+            "PUBLIC_APP_URL": "https://oficina-pro-staging.example.com",
             "DATABASE_URL": "",
             "DEFAULT_ADMIN_USERNAME": "admin_staging",
             "DEFAULT_ADMIN_EMAIL": "admin.staging@oficinapro.local",

@@ -61,6 +61,15 @@ PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "").strip().rstrip("/")
 ONLINE_ENVS = {"staging", "production"}
 
 
+def public_app_origin():
+    if not PUBLIC_APP_URL:
+        return ""
+    parsed = urlparse(PUBLIC_APP_URL)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+
 def online_security_failures():
     failures = []
     if APP_ENV not in ONLINE_ENVS:
@@ -75,6 +84,8 @@ def online_security_failures():
         failures.append("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.")
     if MERCADOPAGO_WEBHOOK_SECRET and len(MERCADOPAGO_WEBHOOK_SECRET) < 32:
         failures.append("MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em ambiente online.")
+    if not public_app_origin():
+        failures.append("PUBLIC_APP_URL precisa estar configurada com URL pública válida em ambiente online.")
     if BILLING_PROVIDER == "mercadopago" and not PUBLIC_APP_URL.startswith("https://"):
         failures.append("BILLING_PROVIDER=mercadopago exige PUBLIC_APP_URL com HTTPS em ambiente online.")
     return failures
@@ -746,6 +757,7 @@ def readiness_report():
         not (online and BILLING_PROVIDER == "mercadopago" and not PUBLIC_APP_URL.startswith("https://")),
         "HTTPS required for Mercado Pago",
     )
+    add_check("public_app_origin", not (online and not public_app_origin()), "PUBLIC_APP_URL required")
     add_check("production_database", not (APP_ENV == "production" and not DATABASE_URL), "DATABASE_URL required")
     add_check("billing_provider", BILLING_PROVIDER in {"manual", "mercadopago"}, BILLING_PROVIDER)
     if APP_ENV == "production":
@@ -2494,6 +2506,33 @@ class Handler(SimpleHTTPRequestHandler):
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    def request_origin(self):
+        origin = str(self.headers.get("Origin") or "").strip()
+        if origin:
+            return origin.lower()
+        referer = str(self.headers.get("Referer") or "").strip()
+        if not referer:
+            return ""
+        parsed = urlparse(referer)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+    def enforce_origin_for_write(self, path):
+        if APP_ENV not in ONLINE_ENVS:
+            return True
+        if path == "/api/billing/webhooks/mercadopago":
+            return True
+        allowed_origin = public_app_origin()
+        if not allowed_origin:
+            self.send_json({"error": "PUBLIC_APP_URL precisa estar configurada para validar origem."}, 403)
+            return False
+        request_origin = self.request_origin()
+        if request_origin and request_origin != allowed_origin:
+            self.send_json({"error": "Origem da requisição não autorizada."}, 403)
+            return False
+        return True
+
     def auth_token(self):
         auth_header = self.headers.get("Authorization", "")
         prefix = "Bearer "
@@ -2873,6 +2912,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if not self.enforce_origin_for_write(parsed.path):
+            return
         query = parse_qs(parsed.query)
         payload = self.read_json()
 
@@ -3454,6 +3495,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         parsed = urlparse(self.path)
+        if not self.enforce_origin_for_write(parsed.path):
+            return
         payload = self.read_json()
 
         try:
@@ -3697,6 +3740,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         parsed = urlparse(self.path)
+        if not self.enforce_origin_for_write(parsed.path):
+            return
 
         try:
             auth_user = None

@@ -28,7 +28,7 @@ Variáveis principais:
 - `DEFAULT_ADMIN_EMAIL`: e-mail do administrador inicial.
 - `DEFAULT_ADMIN_PASSWORD`: senha do administrador inicial; em staging/produção deve ter 12+ caracteres e não pode ser a padrão local.
 - `BILLING_PROVIDER`: `manual` em homologação ou `mercadopago` em produção.
-- `PUBLIC_APP_URL`: URL pública do sistema.
+- `PUBLIC_APP_URL`: URL pública do sistema; obrigatória em staging/produção e usada para validar origem de escritas no navegador.
 - `MERCADOPAGO_ACCESS_TOKEN`: token do Mercado Pago.
 - `MERCADOPAGO_WEBHOOK_SECRET`: segredo usado para validar webhook.
 
@@ -71,6 +71,7 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Confirmar no sandbox que eventos sem status aprovado/autorizado não liberam escrita.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
 - Conferir `/api/ready` retornando `ok=true` na URL pública.
+- Confirmar que POST/PUT/DELETE vindos de outro domínio são bloqueados; automações sem cabeçalho `Origin` continuam permitidas para smoke tests e integrações controladas.
 - Rodar verificação pública:
 
 ```powershell
