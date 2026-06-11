@@ -48,6 +48,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - `render.yaml` para staging controlado no Render com PostgreSQL gerenciado.
 - Preflight técnico em `python scripts/preflight.py`.
 - Release check local em `python scripts/release_check.py`.
+- Geração local de segredos de deploy em `python scripts/generate_deploy_secrets.py`.
 - Validação de schema em `python scripts/validate_schema.py`.
 - Validação de governança de migrações em `python scripts/validate_migrations.py`.
 - Backup SQLite de homologação em `python scripts/backup_sqlite.py`.
@@ -75,10 +76,10 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
 - Migrações versionadas para sessões de banco e auditoria de login.
 - Migrações versionadas para checkout e eventos de webhook de cobrança.
-- Backend PostgreSQL inicial no servidor com aplicação automática da baseline.
+- Backend PostgreSQL inicial no servidor com aplicação de migrações pendentes.
 - Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
 - Exportação PostgreSQL JSONL para backup lógico online em `python scripts/export_postgres_jsonl.py`.
-- Aplicação da baseline PostgreSQL em `python scripts/apply_postgres_baseline.py`.
+- Aplicação de migrações pendentes em `python scripts/apply_migrations.py`.
 - Importação JSONL para PostgreSQL em `python scripts/import_jsonl_to_postgres.py`.
 - Configuração de cobrança em `docs/PAGAMENTOS.md`.
 - CI no GitHub Actions para validar sintaxe, schema, preflight e smoke API.

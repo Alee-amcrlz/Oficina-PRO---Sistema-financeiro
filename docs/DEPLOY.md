@@ -71,6 +71,14 @@ Esse comando junta preflight, travas de runtime, sintaxe, schema, governança de
 
 Se o Node.js não estiver no `PATH`, defina `NODE_BIN` apontando para o executável antes de rodar o release check.
 
+Para gerar valores fortes antes de preencher o painel do provedor:
+
+```powershell
+python scripts/generate_deploy_secrets.py --admin-email "admin@seudominio.com" --admin-username "admin_oficina_pro" --public-url "https://oficina-pro-staging.onrender.com"
+```
+
+Para produção, use `--production`; o script muda `APP_ENV` para `production` e exige Mercado Pago como provedor de cobrança.
+
 ## Checklist de staging
 
 - Configurar `APP_ENV=staging`.
@@ -78,6 +86,7 @@ Se o Node.js não estiver no `PATH`, defina `NODE_BIN` apontando para o executá
 - Configurar `DEFAULT_ADMIN_EMAIL` com e-mail administrativo real.
 - Configurar `DEFAULT_ADMIN_USERNAME` com usuário administrativo exclusivo, diferente de `master`.
 - Configurar `DEFAULT_ADMIN_PASSWORD` com senha forte e exclusiva.
+- Gerar `DEFAULT_ADMIN_PASSWORD` e `MERCADOPAGO_WEBHOOK_SECRET` com `python scripts/generate_deploy_secrets.py`.
 - Para Render, usar `render.yaml` como blueprint de staging com PostgreSQL gerenciado e preencher os segredos solicitados no painel.
 - O blueprint roda `python scripts/preflight.py && python scripts/validate_migrations.py && python scripts/apply_migrations.py` antes de cada deploy.
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
@@ -114,6 +123,7 @@ python scripts/verify_staging.py
 - Criar rotina de backup e restauração.
 - Manter backup gerenciado do PostgreSQL e exportação lógica periódica com `python scripts/export_postgres_jsonl.py`.
 - Configurar Mercado Pago em produção.
+- Gerar os segredos de produção com `python scripts/generate_deploy_secrets.py --production`.
 - Ativar webhook em `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
 - Confirmar `BILLING_PROVIDER=mercadopago`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` e `PUBLIC_APP_URL=https://...`.
 - Ativar domínio próprio e HTTPS.

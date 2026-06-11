@@ -29,6 +29,7 @@ PYTHON_FILES = [
     "scripts/validate_migrations.py",
     "scripts/validate_data_tables.py",
     "scripts/apply_migrations.py",
+    "scripts/generate_deploy_secrets.py",
     "scripts/release_check.py",
     "scripts/export_sqlite_jsonl.py",
     "scripts/export_postgres_jsonl.py",
