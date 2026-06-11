@@ -22,6 +22,7 @@ PYTHON_FILES = [
     "scripts/smoke_security_headers.py",
     "scripts/smoke_origin_guard.py",
     "scripts/smoke_password_policy.py",
+    "scripts/smoke_platform_privacy.py",
     "scripts/smoke_session_revocation.py",
     "scripts/verify_staging.py",
     "scripts/validate_schema.py",

@@ -50,6 +50,7 @@ O sistema já possui:
 - Isolamento multiempresa por `companyId` nas rotas principais.
 - Planos comerciais e bloqueio de recursos por plano.
 - Painel Master com auditoria.
+- Painel Master sem exposição de totais financeiros operacionais das oficinas.
 - Fluxo operacional com clientes, veículos, orçamento e OS.
 - Solicitação de contratação/alteração de plano pelo cliente com rastreio no Painel Master.
 - Entrada segura de webhook Mercado Pago com validação HMAC e registro idempotente dos eventos.
