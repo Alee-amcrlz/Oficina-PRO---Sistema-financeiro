@@ -42,6 +42,26 @@ def require_psycopg():
     return psycopg
 
 
+def split_sql_statements(sql):
+    statements = []
+    for raw_statement in sql.split(";"):
+        statement = raw_statement.strip()
+        if not statement:
+            continue
+        meaningful_lines = [
+            line
+            for line in statement.splitlines()
+            if line.strip() and not line.lstrip().startswith("--")
+        ]
+        if not meaningful_lines:
+            continue
+        normalized = " ".join(line.strip() for line in meaningful_lines).upper()
+        if normalized in {"BEGIN", "COMMIT"}:
+            continue
+        statements.append(statement)
+    return statements
+
+
 def sqlite_schema_migrations(conn):
     exists = conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
@@ -96,7 +116,7 @@ def apply_postgres(database_url, dry_run):
         return 1
 
     migrations = collect_migrations("postgres")
-    with psycopg.connect(database_url, autocommit=True) as conn:
+    with psycopg.connect(database_url) as conn:
         applied = postgres_schema_migrations(conn)
         pending = [(version, path) for version, path in migrations if version not in applied]
         if dry_run:
@@ -104,7 +124,9 @@ def apply_postgres(database_url, dry_run):
             return 0
         with conn.cursor() as cur:
             for version, path in pending:
-                cur.execute(path.read_text(encoding="utf-8"))
+                for statement in split_sql_statements(path.read_text(encoding="utf-8")):
+                    cur.execute(statement)
+                conn.commit()
                 print(f"[OK] Migracao PostgreSQL aplicada: {version}")
         if not pending:
             print("[OK] PostgreSQL sem migracoes pendentes.")
