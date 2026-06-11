@@ -64,6 +64,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Smoke tests de API em `python scripts/smoke_api.py`.
 - Smoke test de configuração segura de runtime em `python scripts/smoke_runtime_config.py`.
 - Smoke test de política mínima de senha em `python scripts/smoke_password_policy.py`.
+- Smoke test de revogação de sessão em `python scripts/smoke_session_revocation.py`.
 - Smoke test de isolamento multiempresa em `python scripts/smoke_multiempresa.py`.
 - Smoke test de checkout de assinatura em `python scripts/smoke_billing_checkout.py`.
 - Smoke test de webhook Mercado Pago em `python scripts/smoke_billing_webhook.py`.

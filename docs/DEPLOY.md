@@ -41,6 +41,7 @@ O sistema já possui:
 - Hash de senha com PBKDF2 e migração automática de hashes legados no login.
 - Política mínima de 12 caracteres para senhas novas de oficinas e usuários.
 - Sessões persistidas no banco com hash do token.
+- Revogação de sessões em troca de senha, bloqueio e exclusão de usuário.
 - Headers HTTP de segurança com CSP, bloqueio de iframe externo e HSTS em produção HTTPS.
 - Auditoria de tentativas de login com IP, user-agent, motivo e bloqueio temporário por excesso de falhas.
 - Usuário administrador inicial configurável por ambiente.

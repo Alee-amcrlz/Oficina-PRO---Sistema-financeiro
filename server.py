@@ -941,6 +941,10 @@ def delete_session(token):
         conn.execute("DELETE FROM user_sessions WHERE tokenHash = ?", (hash_token(token),))
 
 
+def delete_user_sessions(conn, user_id):
+    conn.execute("DELETE FROM user_sessions WHERE userId = ?", (int(user_id),))
+
+
 def prune_expired_sessions():
     with connect() as conn:
         conn.execute("DELETE FROM user_sessions WHERE expiresAt < ?", (time.time(),))
@@ -3627,11 +3631,15 @@ class Handler(SimpleHTTPRequestHandler):
                 data = normalize_user(payload, current)
                 data["companyId"] = company_id
                 assignments = ", ".join([f"{column} = ?" for column in USER_COLUMNS])
+                password_changed = bool(payload.get("password"))
+                blocked_changed = bool(current["blocked"]) != bool(data["blocked"])
                 with connect() as conn:
                     conn.execute(
                         f"UPDATE users SET {assignments} WHERE id = ? AND companyId = ?",
                         [data[column] for column in USER_COLUMNS] + [user_id, company_id],
                     )
+                    if password_changed or blocked_changed:
+                        delete_user_sessions(conn, user_id)
                     row = conn.execute(
                         "SELECT * FROM users WHERE id = ? AND companyId = ?",
                         (user_id, company_id),
@@ -3806,6 +3814,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return
                 user_id = int(parsed.path.rsplit("/", 1)[-1])
                 with connect() as conn:
+                    delete_user_sessions(conn, user_id)
                     conn.execute(
                         "DELETE FROM users WHERE id = ? AND companyId = ?",
                         (user_id, company_id),

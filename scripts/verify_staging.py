@@ -92,6 +92,7 @@ def main():
     smoke_origin_guard = os.path.join(root, "scripts", "smoke_origin_guard.py")
     smoke_multiempresa = os.path.join(root, "scripts", "smoke_multiempresa.py")
     smoke_password_policy = os.path.join(root, "scripts", "smoke_password_policy.py")
+    smoke_session_revocation = os.path.join(root, "scripts", "smoke_session_revocation.py")
     smoke_billing_checkout = os.path.join(root, "scripts", "smoke_billing_checkout.py")
     smoke_billing_webhook = os.path.join(root, "scripts", "smoke_billing_webhook.py")
 
@@ -100,6 +101,7 @@ def main():
         smoke_origin_guard,
         smoke_multiempresa,
         smoke_password_policy,
+        smoke_session_revocation,
         smoke_billing_checkout,
         smoke_billing_webhook,
     ):
