@@ -21,7 +21,7 @@ REQUIRED_COLUMNS = {
     "subscriptions": {"id", "companyId", "plan", "status", "billingCycle", "currentPeriodEnd"},
     "payments": {"id", "companyId", "subscriptionId", "provider", "amount", "status"},
     "billing_checkout_requests": {"id", "companyId", "subscriptionId", "plan", "billingCycle", "provider", "amount", "status"},
-    "billing_webhook_events": {"id", "provider", "eventId", "eventType", "resourceId", "requestId", "payload", "receivedAt"},
+    "billing_webhook_events": {"id", "provider", "eventId", "eventType", "action", "resourceId", "requestId", "payload", "receivedAt"},
     "platform_audit_log": {"id", "actorUserId", "action", "targetCompanyId", "details", "createdAt"},
     "schema_migrations": {"version", "appliedAt"},
 }

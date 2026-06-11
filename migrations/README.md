@@ -16,6 +16,8 @@ O arquivo `20260609_web_saas_baseline.postgres.sql` é a baseline inicial planej
 
 As migrações incrementais atuais adicionam sessões persistidas no banco, auditoria de login, solicitações de checkout de assinatura e registro idempotente de webhooks de cobrança.
 
+Use `python scripts/validate_migrations.py` para conferir se os arquivos SQL versionados estão alinhados com `server.py` e `scripts/validate_schema.py`.
+
 Use `python scripts/validate_schema.py` para conferir se o banco ativo tem as tabelas e colunas críticas.
 
 Antes de produção comercial, o próximo passo é transformar o schema atual em migrações SQL separadas para PostgreSQL.
@@ -24,4 +26,7 @@ Antes de produção comercial, o próximo passo é transformar o schema atual em
 
 - Não editar dados de produção manualmente.
 - Toda alteração estrutural deve ganhar uma nova versão.
+- Toda nova versão deve ter arquivos `.sqlite.sql` e `.postgres.sql`.
+- Atualizar `REQUIRED_SCHEMA_MIGRATIONS` em `server.py` e `REQUIRED_MIGRATIONS` em `scripts/validate_schema.py`.
+- Rodar `python scripts/validate_migrations.py` antes de commit/push.
 - Antes de aplicar em produção, aplicar em staging e testar restauração de backup.
