@@ -17,7 +17,7 @@ services:
     region: oregon
     branch: codex/oficina-pro-v1.1
     healthCheckPath: /api/health
-    preDeployCommand: python scripts/preflight.py && python scripts/validate_migrations.py
+    preDeployCommand: python scripts/preflight.py && python scripts/validate_migrations.py && python scripts/apply_migrations.py
     autoDeployTrigger: "off"
     maxShutdownDelaySeconds: 60
     envVars:

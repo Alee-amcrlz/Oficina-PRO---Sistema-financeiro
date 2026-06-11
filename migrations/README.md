@@ -18,9 +18,11 @@ As migrações incrementais atuais adicionam sessões persistidas no banco, audi
 
 Use `python scripts/validate_migrations.py` para conferir se os arquivos SQL versionados estão alinhados com `server.py` e `scripts/validate_schema.py`.
 
+Use `python scripts/apply_migrations.py` para aplicar somente migrações pendentes no SQLite local ou no PostgreSQL configurado em `DATABASE_URL`.
+
 Use `python scripts/validate_schema.py` para conferir se o banco ativo tem as tabelas e colunas críticas.
 
-Antes de produção comercial, o próximo passo é transformar o schema atual em migrações SQL separadas para PostgreSQL.
+Antes de produção comercial, toda alteração nova de schema deve continuar entrando como migração SQL versionada para SQLite e PostgreSQL.
 
 ## Regra
 
@@ -29,4 +31,5 @@ Antes de produção comercial, o próximo passo é transformar o schema atual em
 - Toda nova versão deve ter arquivos `.sqlite.sql` e `.postgres.sql`.
 - Atualizar `REQUIRED_SCHEMA_MIGRATIONS` em `server.py` e `REQUIRED_MIGRATIONS` em `scripts/validate_schema.py`.
 - Rodar `python scripts/validate_migrations.py` antes de commit/push.
+- Rodar `python scripts/apply_migrations.py --dry-run` para conferir pendências antes de deploy.
 - Antes de aplicar em produção, aplicar em staging e testar restauração de backup.

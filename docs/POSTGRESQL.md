@@ -32,7 +32,7 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 - `/api/ready` também valida configuração mínima de cobrança em produção.
 - Existe baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
 - Exporte dados de homologação com `python scripts/export_sqlite_jsonl.py`.
-- Aplique a baseline em banco PostgreSQL vazio com `python scripts/apply_postgres_baseline.py`.
+- Aplique migrações pendentes em banco PostgreSQL com `python scripts/apply_migrations.py`.
 - Importe uma exportação SQLite JSONL com `python scripts/import_jsonl_to_postgres.py`.
 - Exporte backup lógico do PostgreSQL online com `python scripts/export_postgres_jsonl.py`.
 - A política oficial de tabelas de migração/backup fica em `scripts/data_tables.py` e é validada por `python scripts/validate_data_tables.py`.
@@ -42,15 +42,16 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 1. Criar um banco PostgreSQL vazio em staging.
 2. Instalar dependência local apenas para o ensaio: `python -m pip install "psycopg[binary]"`.
 3. Configurar `DATABASE_URL` apontando para esse banco.
-4. Rodar `python scripts/apply_postgres_baseline.py`.
+4. Rodar `python scripts/apply_migrations.py`.
 5. Rodar `python scripts/export_sqlite_jsonl.py`.
 6. Validar o pacote exportado com `python scripts/import_jsonl_to_postgres.py --dry-run --export-dir exports/sqlite-export-AAAAMMDD-HHMMSS`.
 7. Rodar `python scripts/import_jsonl_to_postgres.py --export-dir exports/sqlite-export-AAAAMMDD-HHMMSS`.
 8. Conferir contagens exibidas pelo importador.
-9. Subir o servidor com `DATABASE_URL` e rodar smoke tests contra o PostgreSQL de staging.
-10. Rodar `python scripts/smoke_billing_checkout.py`.
-11. Rodar `python scripts/smoke_billing_webhook.py` com `MERCADOPAGO_WEBHOOK_SECRET` configurado.
-12. Rodar `python scripts/export_postgres_jsonl.py` para validar uma cópia lógica do banco online.
+9. Conferir que `python scripts/apply_migrations.py --dry-run` não aponta migrações pendentes.
+10. Subir o servidor com `DATABASE_URL` e rodar smoke tests contra o PostgreSQL de staging.
+11. Rodar `python scripts/smoke_billing_checkout.py`.
+12. Rodar `python scripts/smoke_billing_webhook.py` com `MERCADOPAGO_WEBHOOK_SECRET` configurado.
+13. Rodar `python scripts/export_postgres_jsonl.py` para validar uma cópia lógica do banco online.
 
 Use `--truncate` somente em banco de staging descartável:
 
