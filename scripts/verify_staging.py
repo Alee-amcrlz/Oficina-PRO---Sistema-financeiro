@@ -66,15 +66,18 @@ def main():
     env["SMOKE_BASE_URL"] = base_url
     env["SMOKE_MASTER_LOGIN"] = master_login
     env["SMOKE_MASTER_PASSWORD"] = master_password
+    env["PUBLIC_APP_URL"] = base_url[:-4] if base_url.endswith("/api") else base_url
+    env["ORIGIN_GUARD_SKIP_WEBHOOK"] = "1"
     env.pop("SMOKE_TENANT_LOGIN", None)
     env.pop("SMOKE_TENANT_PASSWORD", None)
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     smoke_api = os.path.join(root, "scripts", "smoke_api.py")
+    smoke_origin_guard = os.path.join(root, "scripts", "smoke_origin_guard.py")
     smoke_multiempresa = os.path.join(root, "scripts", "smoke_multiempresa.py")
     smoke_billing_checkout = os.path.join(root, "scripts", "smoke_billing_checkout.py")
 
-    for script in (smoke_api, smoke_multiempresa, smoke_billing_checkout):
+    for script in (smoke_api, smoke_origin_guard, smoke_multiempresa, smoke_billing_checkout):
         code = run_script(script, env)
         if code != 0:
             return code

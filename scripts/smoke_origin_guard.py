@@ -9,6 +9,7 @@ import time
 BASE_URL = os.environ.get("SMOKE_BASE_URL", "http://127.0.0.1:4173/api").rstrip("/")
 PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "https://oficina-pro-staging.example.com").rstrip("/")
 WEBHOOK_SECRET = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "segredo-ci-com-mais-de-32-caracteres")
+SKIP_WEBHOOK = os.environ.get("ORIGIN_GUARD_SKIP_WEBHOOK", "").strip().lower() in {"1", "true", "yes", "sim"}
 
 
 def post_json(path, payload, headers=None):
@@ -60,20 +61,21 @@ def main():
     )
     expect(status == 401, "origem pública correta chega ao fluxo normal de login", data)
 
-    resource_id = f"origin-payment-{int(time.time())}"
-    payload = {
-        "id": f"origin-event-{resource_id}",
-        "type": "payment",
-        "action": "payment.updated",
-        "status": "pending",
-        "data": {"id": resource_id},
-    }
-    status, data = post_json(
-        f"/billing/webhooks/mercadopago?data.id={resource_id}&type=payment",
-        payload,
-        headers=mercadopago_headers(resource_id),
-    )
-    expect(status == 202, "webhook assinado continua liberado sem Origin", data)
+    if not SKIP_WEBHOOK:
+        resource_id = f"origin-payment-{int(time.time())}"
+        payload = {
+            "id": f"origin-event-{resource_id}",
+            "type": "payment",
+            "action": "payment.updated",
+            "status": "pending",
+            "data": {"id": resource_id},
+        }
+        status, data = post_json(
+            f"/billing/webhooks/mercadopago?data.id={resource_id}&type=payment",
+            payload,
+            headers=mercadopago_headers(resource_id),
+        )
+        expect(status == 202, "webhook assinado continua liberado sem Origin", data)
 
     print("\nSmoke de proteção de origem concluído.")
     return 0

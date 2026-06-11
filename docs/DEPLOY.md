@@ -71,7 +71,7 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Confirmar no sandbox que eventos sem status aprovado/autorizado não liberam escrita.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
 - Conferir `/api/ready` retornando `ok=true` na URL pública.
-- Confirmar que POST/PUT/DELETE vindos de outro domínio são bloqueados; automações sem cabeçalho `Origin` continuam permitidas para smoke tests e integrações controladas.
+- Confirmar que POST/PUT/DELETE vindos de outro domínio são bloqueados; `python scripts/verify_staging.py` já testa esse bloqueio com `scripts/smoke_origin_guard.py`.
 - Rodar verificação pública:
 
 ```powershell
