@@ -61,6 +61,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Headers básicos de segurança HTTP.
 - Validação de origem para escritas em ambientes online, preservando webhooks assinados.
 - Smoke tests de API em `python scripts/smoke_api.py`.
+- Smoke test de configuração segura de runtime em `python scripts/smoke_runtime_config.py`.
 - Smoke test de isolamento multiempresa em `python scripts/smoke_multiempresa.py`.
 - Smoke test de checkout de assinatura em `python scripts/smoke_billing_checkout.py`.
 - Smoke test de webhook Mercado Pago em `python scripts/smoke_billing_webhook.py`.

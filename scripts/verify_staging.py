@@ -35,6 +35,20 @@ def require_env(name):
     return value
 
 
+def require_checkout_webhook_secret():
+    value = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
+    if not value:
+        print(
+            "[ERRO] Configure MERCADOPAGO_WEBHOOK_SECRET para validar checkout/webhook no staging. "
+            "Use o mesmo segredo configurado no ambiente online."
+        )
+        return None
+    if len(value) < 32:
+        print("[ERRO] MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres.")
+        return None
+    return value
+
+
 def run_script(script, env):
     cmd = [sys.executable, str(script)]
     print(f"[INFO] Rodando {' '.join(cmd)}")
@@ -46,7 +60,8 @@ def main():
     staging_url = require_env("STAGING_BASE_URL")
     master_login = require_env("SMOKE_MASTER_LOGIN")
     master_password = require_env("SMOKE_MASTER_PASSWORD")
-    if not all([staging_url, master_login, master_password]):
+    webhook_secret = require_checkout_webhook_secret()
+    if not all([staging_url, master_login, master_password, webhook_secret]):
         return 1
 
     base_url = normalize_base_url(staging_url)
@@ -67,6 +82,7 @@ def main():
     env["SMOKE_MASTER_LOGIN"] = master_login
     env["SMOKE_MASTER_PASSWORD"] = master_password
     env["PUBLIC_APP_URL"] = base_url[:-4] if base_url.endswith("/api") else base_url
+    env["MERCADOPAGO_WEBHOOK_SECRET"] = webhook_secret
     env["ORIGIN_GUARD_SKIP_WEBHOOK"] = "1"
     env.pop("SMOKE_TENANT_LOGIN", None)
     env.pop("SMOKE_TENANT_PASSWORD", None)
@@ -76,8 +92,9 @@ def main():
     smoke_origin_guard = os.path.join(root, "scripts", "smoke_origin_guard.py")
     smoke_multiempresa = os.path.join(root, "scripts", "smoke_multiempresa.py")
     smoke_billing_checkout = os.path.join(root, "scripts", "smoke_billing_checkout.py")
+    smoke_billing_webhook = os.path.join(root, "scripts", "smoke_billing_webhook.py")
 
-    for script in (smoke_api, smoke_origin_guard, smoke_multiempresa, smoke_billing_checkout):
+    for script in (smoke_api, smoke_origin_guard, smoke_multiempresa, smoke_billing_checkout, smoke_billing_webhook):
         code = run_script(script, env)
         if code != 0:
             return code

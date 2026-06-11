@@ -18,6 +18,7 @@ PYTHON_FILES = [
     "scripts/smoke_billing_checkout.py",
     "scripts/smoke_billing_webhook.py",
     "scripts/smoke_preflight_security.py",
+    "scripts/smoke_runtime_config.py",
     "scripts/smoke_origin_guard.py",
     "scripts/verify_staging.py",
     "scripts/validate_schema.py",
@@ -45,6 +46,8 @@ def main():
     steps = [
         ("Sintaxe Python", [PYTHON, "-m", "py_compile", *PYTHON_FILES]),
         ("Preflight", [PYTHON, "scripts/preflight.py"]),
+        ("Smoke seguranca preflight", [PYTHON, "scripts/smoke_preflight_security.py"]),
+        ("Smoke configuracao runtime", [PYTHON, "scripts/smoke_runtime_config.py"]),
         ("Governanca de migracoes", [PYTHON, "scripts/validate_migrations.py"]),
         ("Schema SQLite", [PYTHON, "scripts/validate_schema.py"]),
         ("Exportacao SQLite JSONL", [PYTHON, "scripts/export_sqlite_jsonl.py"]),

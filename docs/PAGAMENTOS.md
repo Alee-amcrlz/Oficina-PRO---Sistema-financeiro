@@ -76,3 +76,4 @@ Antes de vender para clientes reais:
 - Validar o mapeamento completo dos eventos reais do Mercado Pago no sandbox.
 - Conferir se todos os eventos reais de pagamento aprovado retornam `providerPaymentId` e valor antes da produção comercial.
 - Rodar testes com sandbox do Mercado Pago.
+- Para validar staging com `scripts/verify_staging.py`, configure localmente `MERCADOPAGO_WEBHOOK_SECRET` com o mesmo segredo do ambiente online.

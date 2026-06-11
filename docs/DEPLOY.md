@@ -60,7 +60,7 @@ Antes de criar ou promover qualquer ambiente online, rode:
 python scripts/release_check.py
 ```
 
-Esse comando junta preflight, sintaxe, schema, governança de migrações, exportação SQLite e dry-run do pacote de importação para PostgreSQL.
+Esse comando junta preflight, travas de runtime, sintaxe, schema, governança de migrações, exportação SQLite e dry-run do pacote de importação para PostgreSQL.
 
 Se o Node.js não estiver no `PATH`, defina `NODE_BIN` apontando para o executável antes de rodar o release check.
 
@@ -89,6 +89,7 @@ Se o Node.js não estiver no `PATH`, defina `NODE_BIN` apontando para o executá
 $env:STAGING_BASE_URL="https://oficina-pro-staging.onrender.com"
 $env:SMOKE_MASTER_LOGIN="admin@seudominio.com"
 $env:SMOKE_MASTER_PASSWORD="senha-forte-do-staging"
+$env:MERCADOPAGO_WEBHOOK_SECRET="mesmo-segredo-configurado-no-staging-com-32-caracteres"
 python scripts/verify_staging.py
 ```
 
