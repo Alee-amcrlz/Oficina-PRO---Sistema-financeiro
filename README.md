@@ -47,7 +47,9 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - `Dockerfile` e `Procfile` para deploy inicial.
 - `render.yaml` para staging controlado no Render com PostgreSQL gerenciado.
 - Preflight técnico em `python scripts/preflight.py`.
+- Release check local em `python scripts/release_check.py`.
 - Validação de schema em `python scripts/validate_schema.py`.
+- Validação de governança de migrações em `python scripts/validate_migrations.py`.
 - Backup SQLite de homologação em `python scripts/backup_sqlite.py`.
 - Restore verificável de backup SQLite em `python scripts/restore_sqlite_backup.py`.
 - Guia de deploy em `docs/DEPLOY.md`.

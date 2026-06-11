@@ -54,6 +54,16 @@ O sistema já possui:
 
 O próximo passo externo é criar o staging no Render a partir de `render.yaml`, preencher os segredos e validar a URL pública com os smokes.
 
+Antes de criar ou promover qualquer ambiente online, rode:
+
+```powershell
+python scripts/release_check.py
+```
+
+Esse comando junta preflight, sintaxe, schema, governança de migrações, exportação SQLite e dry-run do pacote de importação para PostgreSQL.
+
+Se o Node.js não estiver no `PATH`, defina `NODE_BIN` apontando para o executável antes de rodar o release check.
+
 ## Checklist de staging
 
 - Configurar `APP_ENV=staging`.
@@ -70,6 +80,7 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Testar contratação pelo painel **Minha assinatura** e conferir a solicitação em **Contratações recentes** no Painel Master.
 - Confirmar no sandbox que eventos sem status aprovado/autorizado não liberam escrita.
 - Conferir no GitHub Actions o job `postgres-runtime` antes de promover staging/produção.
+- Rodar `python scripts/release_check.py` localmente antes de acionar o deploy manual.
 - Conferir `/api/ready` retornando `ok=true` na URL pública.
 - Confirmar que POST/PUT/DELETE vindos de outro domínio são bloqueados; `python scripts/verify_staging.py` já testa esse bloqueio com `scripts/smoke_origin_guard.py`.
 - Rodar verificação pública:
