@@ -72,6 +72,7 @@ Se o Node.js não estiver no `PATH`, defina `NODE_BIN` apontando para o executá
 - Configurar `DEFAULT_ADMIN_USERNAME` com usuário administrativo exclusivo, diferente de `master`.
 - Configurar `DEFAULT_ADMIN_PASSWORD` com senha forte e exclusiva.
 - Para Render, usar `render.yaml` como blueprint de staging com PostgreSQL gerenciado e preencher os segredos solicitados no painel.
+- O blueprint roda `python scripts/preflight.py && python scripts/validate_migrations.py` antes de cada deploy.
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.
 - Confirmar `BILLING_PROVIDER=manual` para staging sem cobrança real, ou `mercadopago` para sandbox de pagamento.
