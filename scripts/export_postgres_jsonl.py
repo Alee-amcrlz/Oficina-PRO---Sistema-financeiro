@@ -5,30 +5,12 @@ import json
 import os
 import sys
 
+from data_tables import POSTGRES_LOGICAL_EXPORT_TABLES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORT_DIR = ROOT / "exports"
-
-TABLES = [
-    "companies",
-    "users",
-    # Sessões ativas não entram em backup lógico para reduzir risco de reaproveitamento de token.
-    "login_audit",
-    "budgets",
-    "customers",
-    "vehicles",
-    "service_orders",
-    "app_settings",
-    "parts_inventory",
-    "suppliers",
-    "accounts_payable",
-    "subscriptions",
-    "payments",
-    "billing_checkout_requests",
-    "billing_webhook_events",
-    "platform_audit_log",
-    "schema_migrations",
-]
+TABLES = POSTGRES_LOGICAL_EXPORT_TABLES
 
 CAMEL_CASE_COLUMNS = {
     "companyid": "companyId",

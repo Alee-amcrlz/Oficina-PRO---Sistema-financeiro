@@ -5,30 +5,12 @@ import os
 import sqlite3
 import sys
 
+from data_tables import SQLITE_MIGRATION_TABLES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORT_DIR = ROOT / "exports"
-
-TABLES = [
-    "companies",
-    "users",
-    # Sessões ativas não são exportadas de propósito.
-    # Auditoria de login também não é exportada para evitar carregar IP/user-agent entre ambientes.
-    "budgets",
-    "customers",
-    "vehicles",
-    "service_orders",
-    "app_settings",
-    "parts_inventory",
-    "suppliers",
-    "accounts_payable",
-    "subscriptions",
-    "payments",
-    # Solicitações de checkout são trilha operacional do ambiente e não entram no pacote de migração.
-    # Eventos de webhook são trilha operacional do ambiente e não entram no pacote de migração.
-    "platform_audit_log",
-    "schema_migrations",
-]
+TABLES = SQLITE_MIGRATION_TABLES
 
 
 def load_env_file(path):

@@ -4,26 +4,12 @@ import json
 import os
 import sys
 
+from data_tables import SQLITE_MIGRATION_TABLES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORT_DIR = ROOT / "exports"
-
-TABLES = [
-    "companies",
-    "users",
-    "budgets",
-    "customers",
-    "vehicles",
-    "service_orders",
-    "app_settings",
-    "parts_inventory",
-    "suppliers",
-    "accounts_payable",
-    "subscriptions",
-    "payments",
-    "platform_audit_log",
-    "schema_migrations",
-]
+TABLES = SQLITE_MIGRATION_TABLES
 
 
 def load_env_file(path):
