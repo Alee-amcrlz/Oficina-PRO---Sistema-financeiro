@@ -91,6 +91,7 @@ python scripts/verify_staging.py
 - Configurar `DATABASE_URL` com PostgreSQL gerenciado antes de liberar `APP_ENV=production`.
 - Ensaiar baseline/importação com `scripts/apply_postgres_baseline.py` e `scripts/import_jsonl_to_postgres.py`.
 - Criar rotina de backup e restauração.
+- Manter backup gerenciado do PostgreSQL e exportação lógica periódica com `python scripts/export_postgres_jsonl.py`.
 - Configurar Mercado Pago em produção.
 - Ativar webhook em `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
 - Confirmar `BILLING_PROVIDER=mercadopago`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` e `PUBLIC_APP_URL=https://...`.

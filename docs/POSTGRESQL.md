@@ -34,6 +34,7 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 - Exporte dados de homologação com `python scripts/export_sqlite_jsonl.py`.
 - Aplique a baseline em banco PostgreSQL vazio com `python scripts/apply_postgres_baseline.py`.
 - Importe uma exportação SQLite JSONL com `python scripts/import_jsonl_to_postgres.py`.
+- Exporte backup lógico do PostgreSQL online com `python scripts/export_postgres_jsonl.py`.
 
 ## Ensaio de Migração
 
@@ -48,12 +49,23 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 9. Subir o servidor com `DATABASE_URL` e rodar smoke tests contra o PostgreSQL de staging.
 10. Rodar `python scripts/smoke_billing_checkout.py`.
 11. Rodar `python scripts/smoke_billing_webhook.py` com `MERCADOPAGO_WEBHOOK_SECRET` configurado.
+12. Rodar `python scripts/export_postgres_jsonl.py` para validar uma cópia lógica do banco online.
 
 Use `--truncate` somente em banco de staging descartável:
 
 ```powershell
 python scripts/import_jsonl_to_postgres.py --truncate
 ```
+
+## Backup Lógico PostgreSQL
+
+Use `python scripts/export_postgres_jsonl.py` com `DATABASE_URL` configurado para gerar `exports/postgres-export-AAAAMMDD-HHMMSS`.
+
+Esse pacote inclui dados operacionais, auditoria de login, solicitações de checkout, webhooks, pagamentos e migrações. Sessões ativas não são exportadas para reduzir risco de reaproveitamento de token.
+
+O diretório exportado contém dados sensíveis e deve ser tratado como segredo: não enviar para repositório, não compartilhar por canais abertos e armazenar somente em local controlado.
+
+O backup lógico não substitui o backup gerenciado do provedor PostgreSQL, mas ajuda em auditoria, conferência antes de deploy e recuperação controlada em staging.
 
 ## Decisão
 

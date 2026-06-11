@@ -69,6 +69,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Migrações versionadas para checkout e eventos de webhook de cobrança.
 - Backend PostgreSQL inicial no servidor com aplicação automática da baseline.
 - Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
+- Exportação PostgreSQL JSONL para backup lógico online em `python scripts/export_postgres_jsonl.py`.
 - Aplicação da baseline PostgreSQL em `python scripts/apply_postgres_baseline.py`.
 - Importação JSONL para PostgreSQL em `python scripts/import_jsonl_to_postgres.py`.
 - Configuração de cobrança em `docs/PAGAMENTOS.md`.
