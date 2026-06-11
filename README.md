@@ -24,9 +24,11 @@ O sistema cria automaticamente um usuário administrador:
 - E-mail: `master@oficina.local`
 - Senha: `Master@123`
 
-O usuário MASTER visualiza todos os orçamentos e todo o financeiro do sistema.
+Essas credenciais são apenas para homologação local. Em staging e produção, configure `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_USERNAME` e `DEFAULT_ADMIN_PASSWORD` com valores exclusivos e fortes.
 
-Usuários criados pelo MASTER em **Configurações** recebem a senha padrão informada no cadastro.
+O usuário administrador da plataforma acessa o Painel Master para gestão de oficinas, assinaturas, pagamentos SaaS e auditoria. O Painel Master não exibe faturamento operacional das oficinas por padrão.
+
+Usuários criados nas configurações da oficina recebem senha definida no cadastro e devem seguir a política mínima de senha configurada no ambiente.
 
 ## Banco de dados
 
@@ -92,7 +94,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Health check em `/api/health` e readiness check em `/api/ready`.
 - Sessão com token temporário após o login.
 - Rotas da API protegidas por token, exceto saúde do sistema e login.
-- Senhas armazenadas com hash SHA-256.
+- Senhas armazenadas com PBKDF2 e migração automática de hashes legados no login.
 - A opção de lembrar acesso salva apenas o usuário/e-mail, não a senha.
 - Cadastro de cliente, e-mail, telefone, endereço, veículo, placa, peças, mão de obra e observações.
 - Cadastro central de clientes e veículos para histórico operacional.
