@@ -61,6 +61,24 @@ def main():
     if status != 401:
         raise SystemExit(f"Webhook inválido não foi recusado: HTTP {status} {body}")
 
+    old_resource_id = f"smoke-payment-old-{int(time.time())}"
+    old_request_id = f"smoke-request-old-{int(time.time())}"
+    old_timestamp = str(int(time.time()) - 3600)
+    old_payload = {
+        "id": f"smoke-event-{old_resource_id}",
+        "type": "payment",
+        "action": "payment.updated",
+        "data": {"id": old_resource_id},
+    }
+    old_path = f"/billing/webhooks/mercadopago?data.id={old_resource_id}&type=payment"
+    status, body = post_json(
+        old_path,
+        old_payload,
+        mercadopago_headers(old_resource_id, old_request_id, old_timestamp),
+    )
+    if status != 401:
+        raise SystemExit(f"Webhook com timestamp antigo não foi recusado: HTTP {status} {body}")
+
     print("[OK] Smoke webhook Mercado Pago validado.")
 
 

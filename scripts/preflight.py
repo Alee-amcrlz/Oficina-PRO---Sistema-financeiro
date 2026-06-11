@@ -49,6 +49,7 @@ def main():
     billing_provider = os.environ.get("BILLING_PROVIDER", "manual").strip().lower()
     mercadopago_access_token = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "").strip()
     mercadopago_webhook_secret = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
+    mercadopago_webhook_max_skew = int(os.environ.get("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS", "600"))
     public_app_url = os.environ.get("PUBLIC_APP_URL", "").strip()
     failures = []
 
@@ -86,6 +87,8 @@ def main():
             fail("MIN_USER_PASSWORD_LENGTH precisa ser pelo menos 12 em ambiente online.", failures)
         if mercadopago_webhook_secret and len(mercadopago_webhook_secret) < 32:
             fail("MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em ambiente online.", failures)
+        if mercadopago_webhook_max_skew < 60:
+            fail("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS precisa ser pelo menos 60 em ambiente online.", failures)
 
     if billing_provider not in {"manual", "mercadopago"}:
         fail("BILLING_PROVIDER precisa ser manual ou mercadopago.", failures)

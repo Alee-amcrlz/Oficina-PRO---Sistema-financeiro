@@ -19,6 +19,7 @@ BASE_ENV = {
     "BILLING_PROVIDER": "mercadopago",
     "MERCADOPAGO_ACCESS_TOKEN": "TEST-token-runtime-config",
     "MERCADOPAGO_WEBHOOK_SECRET": "segredo-runtime-com-mais-de-32-caracteres",
+    "MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS": "600",
     "MIN_USER_PASSWORD_LENGTH": "12",
 }
 
@@ -72,6 +73,10 @@ def main():
     weak_password_policy = run_runtime({"MIN_USER_PASSWORD_LENGTH": "6"})
     expect(weak_password_policy.returncode != 0, "runtime recusa política de senha fraca online", weak_password_policy.stdout)
     expect("MIN_USER_PASSWORD_LENGTH" in weak_password_policy.stdout, "runtime aponta política mínima de senha", weak_password_policy.stdout)
+
+    weak_webhook_window = run_runtime({"MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS": "30"})
+    expect(weak_webhook_window.returncode != 0, "runtime recusa janela de webhook curta online", weak_webhook_window.stdout)
+    expect("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS" in weak_webhook_window.stdout, "runtime aponta janela mínima de webhook", weak_webhook_window.stdout)
 
     staging_manual = run_runtime(
         {

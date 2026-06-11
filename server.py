@@ -58,6 +58,7 @@ DEFAULT_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "Master@123")
 BILLING_PROVIDER = os.environ.get("BILLING_PROVIDER", "manual").strip().lower() or "manual"
 MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "").strip()
 MERCADOPAGO_WEBHOOK_SECRET = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
+MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS = env_int("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS", 10 * 60)
 PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "").strip().rstrip("/")
 ONLINE_ENVS = {"staging", "production"}
 
@@ -85,6 +86,8 @@ def online_security_failures():
         failures.append("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.")
     if MERCADOPAGO_WEBHOOK_SECRET and len(MERCADOPAGO_WEBHOOK_SECRET) < 32:
         failures.append("MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em ambiente online.")
+    if MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS < 60:
+        failures.append("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS precisa ser pelo menos 60 em ambiente online.")
     if MIN_USER_PASSWORD_LENGTH < 12:
         failures.append("MIN_USER_PASSWORD_LENGTH precisa ser pelo menos 12 em ambiente online.")
     if not public_app_origin():
@@ -755,6 +758,11 @@ def readiness_report():
         "webhook_secret_strength",
         not (online and MERCADOPAGO_WEBHOOK_SECRET and len(MERCADOPAGO_WEBHOOK_SECRET) < 32),
         "minimum 32 chars",
+    )
+    add_check(
+        "webhook_signature_window",
+        not (online and MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS < 60),
+        "minimum 60 seconds",
     )
     add_check(
         "billing_public_url_https",
@@ -2052,6 +2060,12 @@ def verify_mercadopago_signature(payload, query, headers):
     resource_id = mercadopago_resource_id(payload, query)
     if not timestamp or not received_hash or not request_id or not resource_id:
         return False, "Assinatura Mercado Pago incompleta."
+    try:
+        timestamp_value = int(timestamp)
+    except (TypeError, ValueError):
+        return False, "Assinatura Mercado Pago com timestamp inválido."
+    if abs(int(time.time()) - timestamp_value) > MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS:
+        return False, "Assinatura Mercado Pago expirada."
     template = mercadopago_signature_template(resource_id, request_id, timestamp)
     expected_hash = hmac.new(
         MERCADOPAGO_WEBHOOK_SECRET.encode("utf-8"),

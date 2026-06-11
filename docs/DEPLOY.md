@@ -32,6 +32,7 @@ Variáveis principais:
 - `PUBLIC_APP_URL`: URL pública do sistema; obrigatória em staging/produção e usada para validar origem de escritas no navegador.
 - `MERCADOPAGO_ACCESS_TOKEN`: token do Mercado Pago.
 - `MERCADOPAGO_WEBHOOK_SECRET`: segredo usado para validar webhook.
+- `MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS`: janela máxima aceita para timestamp de webhook assinado.
 
 ## Estado atual
 

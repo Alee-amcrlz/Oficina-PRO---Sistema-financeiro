@@ -64,6 +64,8 @@ Configure no Mercado Pago a URL:
 
 O endpoint valida `x-signature` e `x-request-id` com HMAC SHA-256 usando `MERCADOPAGO_WEBHOOK_SECRET`, registra o payload em `billing_webhook_events` e trata reenvios como duplicados idempotentes.
 
+Também valida a idade do timestamp da assinatura. Por padrão, `MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS=600`; em staging/produção o valor não pode ser menor que 60 segundos.
+
 Quando o evento possui status aprovado/autorizado, ou quando a consulta ao Mercado Pago confirma esse status, o backend localiza a solicitação em `billing_checkout_requests`, marca a contratação como concluída, atualiza a assinatura para `active` e registra um pagamento `paid` quando houver ID/valor confiável. Eventos sem confirmação segura ficam como `skipped` ou `error` e não liberam acesso.
 
 O registro de pagamento é idempotente por `provider` + `providerPaymentId`; reenvios do webhook não duplicam a cobrança no Painel Master.
