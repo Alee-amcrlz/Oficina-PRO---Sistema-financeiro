@@ -801,6 +801,32 @@ def password_policy_error(password, label="senha"):
     return ""
 
 
+def security_headers():
+    headers = {
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "same-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'; "
+            "object-src 'none'; "
+            "img-src 'self' data:; "
+            "style-src 'self'; "
+            "script-src 'self'; "
+            "connect-src 'self'; "
+            "form-action 'self'"
+        ),
+    }
+    if APP_ENV == "production" and PUBLIC_APP_URL.startswith("https://"):
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return headers
+
+
 def verify_password(password, stored_hash):
     stored = str(stored_hash or "")
     if stored.startswith("pbkdf2_sha256$"):
@@ -2495,11 +2521,8 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Referrer-Policy", "same-origin")
-        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        for name, value in security_headers().items():
+            self.send_header(name, value)
         super().end_headers()
 
     def send_json(self, data, status=200):
