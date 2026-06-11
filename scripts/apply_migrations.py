@@ -8,6 +8,14 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = ROOT / "migrations"
 MIGRATION_FILE_RE = re.compile(r"^(.+)\.(sqlite|postgres)\.sql$")
+BASELINE_VERSION = "20260609_web_saas_baseline"
+MIGRATION_ORDER = [
+    "20260609_web_saas_baseline",
+    "20260609_db_sessions",
+    "20260609_login_audit",
+    "20260610_billing_webhooks",
+    "20260610_billing_checkout_requests",
+]
 
 
 def load_env_file(path):
@@ -30,7 +38,15 @@ def collect_migrations(dialect):
         version, file_dialect = match.groups()
         if file_dialect == dialect:
             migrations.append((version, path))
-    return migrations
+    return sorted(migrations, key=migration_sort_key)
+
+
+def migration_sort_key(migration):
+    version, _ = migration
+    try:
+        return (0, MIGRATION_ORDER.index(version))
+    except ValueError:
+        return (1, version)
 
 
 def require_psycopg():
@@ -91,6 +107,24 @@ def postgres_schema_migrations(conn):
         return {row[0] for row in cur.fetchall()}
 
 
+def record_sqlite_migration(conn, version):
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, appliedAt) VALUES (?, datetime('now'))",
+        (version,),
+    )
+
+
+def record_postgres_migration(cur, version):
+    cur.execute(
+        """
+        INSERT INTO schema_migrations (version, appliedAt)
+        VALUES (%s, now()::text)
+        ON CONFLICT (version) DO NOTHING
+        """,
+        (version,),
+    )
+
+
 def apply_sqlite(sqlite_path, dry_run):
     migrations = collect_migrations("sqlite")
     conn = sqlite3.connect(sqlite_path)
@@ -100,10 +134,17 @@ def apply_sqlite(sqlite_path, dry_run):
         if dry_run:
             print_pending("SQLite", pending)
             return 0
-        for version, path in pending:
+        applied_any = False
+        for version, path in migrations:
+            applied = sqlite_schema_migrations(conn)
+            if version in applied:
+                continue
             conn.executescript(path.read_text(encoding="utf-8"))
+            record_sqlite_migration(conn, version)
+            conn.commit()
+            applied_any = True
             print(f"[OK] Migracao SQLite aplicada: {version}")
-        if not pending:
+        if not applied_any:
             print("[OK] SQLite sem migracoes pendentes.")
         return 0
     finally:
@@ -122,13 +163,19 @@ def apply_postgres(database_url, dry_run):
         if dry_run:
             print_pending("PostgreSQL", pending)
             return 0
+        applied_any = False
         with conn.cursor() as cur:
-            for version, path in pending:
+            for version, path in migrations:
+                applied = postgres_schema_migrations(conn)
+                if version in applied:
+                    continue
                 for statement in split_sql_statements(path.read_text(encoding="utf-8")):
                     cur.execute(statement)
+                record_postgres_migration(cur, version)
                 conn.commit()
+                applied_any = True
                 print(f"[OK] Migracao PostgreSQL aplicada: {version}")
-        if not pending:
+        if not applied_any:
             print("[OK] PostgreSQL sem migracoes pendentes.")
     return 0
 
