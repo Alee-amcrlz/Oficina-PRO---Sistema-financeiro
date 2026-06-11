@@ -47,6 +47,7 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = env_int("PORT", 4173)
 SESSION_TTL_SECONDS = env_int("SESSION_TTL_SECONDS", 8 * 60 * 60)
 PASSWORD_HASH_ITERATIONS = env_int("PASSWORD_HASH_ITERATIONS", 260000)
+MIN_USER_PASSWORD_LENGTH = env_int("MIN_USER_PASSWORD_LENGTH", 12)
 LOGIN_MAX_ATTEMPTS = env_int("LOGIN_MAX_ATTEMPTS", 5)
 LOGIN_WINDOW_SECONDS = env_int("LOGIN_WINDOW_SECONDS", 15 * 60)
 LOGIN_LOCK_SECONDS = env_int("LOGIN_LOCK_SECONDS", 15 * 60)
@@ -84,6 +85,8 @@ def online_security_failures():
         failures.append("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.")
     if MERCADOPAGO_WEBHOOK_SECRET and len(MERCADOPAGO_WEBHOOK_SECRET) < 32:
         failures.append("MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em ambiente online.")
+    if MIN_USER_PASSWORD_LENGTH < 12:
+        failures.append("MIN_USER_PASSWORD_LENGTH precisa ser pelo menos 12 em ambiente online.")
     if not public_app_origin():
         failures.append("PUBLIC_APP_URL precisa estar configurada com URL pública válida em ambiente online.")
     if BILLING_PROVIDER == "mercadopago" and not PUBLIC_APP_URL.startswith("https://"):
@@ -747,6 +750,7 @@ def readiness_report():
     add_check("admin_username", not (online and DEFAULT_ADMIN_USERNAME == "master"), "default admin username")
     add_check("admin_password", not (online and DEFAULT_ADMIN_PASSWORD == "Master@123"), "default admin password")
     add_check("admin_password_length", not (online and len(DEFAULT_ADMIN_PASSWORD) < 12), "minimum 12 chars")
+    add_check("user_password_policy", not (online and MIN_USER_PASSWORD_LENGTH < 12), "minimum 12 chars")
     add_check(
         "webhook_secret_strength",
         not (online and MERCADOPAGO_WEBHOOK_SECRET and len(MERCADOPAGO_WEBHOOK_SECRET) < 32),
@@ -789,6 +793,12 @@ def hash_password(password):
         PASSWORD_HASH_ITERATIONS,
     ).hex()
     return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}"
+
+
+def password_policy_error(password, label="senha"):
+    if len(str(password or "")) < MIN_USER_PASSWORD_LENGTH:
+        return f"{label} precisa ter pelo menos {MIN_USER_PASSWORD_LENGTH} caracteres."
+    return ""
 
 
 def verify_password(password, stored_hash):
@@ -3161,8 +3171,12 @@ class Handler(SimpleHTTPRequestHandler):
                 if not company["name"]:
                     self.send_json({"error": "Informe o nome da oficina."}, 400)
                     return
-                if not owner_name or not owner_email or len(owner_password) < 6:
-                    self.send_json({"error": "Informe dono, e-mail e senha inicial com pelo menos 6 caracteres."}, 400)
+                owner_password_error = password_policy_error(owner_password, "A senha inicial do dono")
+                if not owner_name or not owner_email or owner_password_error:
+                    self.send_json(
+                        {"error": owner_password_error or "Informe dono, e-mail e senha inicial."},
+                        400,
+                    )
                     return
 
                 with connect() as conn:
@@ -3281,6 +3295,10 @@ class Handler(SimpleHTTPRequestHandler):
                 data["companyId"] = company_id
                 if not data.get("passwordHash"):
                     self.send_json({"error": "Informe uma senha para criar o usuário."}, 400)
+                    return
+                password_error = password_policy_error(payload.get("password"), "A senha")
+                if password_error:
+                    self.send_json({"error": password_error}, 400)
                     return
                 columns = ", ".join(USER_COLUMNS)
                 marks = ", ".join(["?"] * len(USER_COLUMNS))
@@ -3572,6 +3590,15 @@ class Handler(SimpleHTTPRequestHandler):
                     ).fetchone()
                 if current is None:
                     self.send_json({"error": "Usuário não encontrado."}, 404)
+                    return
+
+                password_error = (
+                    password_policy_error(payload.get("password"), "A nova senha")
+                    if payload.get("password")
+                    else ""
+                )
+                if password_error:
+                    self.send_json({"error": password_error}, 400)
                     return
 
                 data = normalize_user(payload, current)

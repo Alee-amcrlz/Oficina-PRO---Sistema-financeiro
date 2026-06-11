@@ -20,6 +20,7 @@ Variáveis principais:
 - `SQLITE_PATH`: caminho do SQLite enquanto estivermos em homologação.
 - `SESSION_TTL_SECONDS`: duração da sessão.
 - `PASSWORD_HASH_ITERATIONS`: custo do PBKDF2.
+- `MIN_USER_PASSWORD_LENGTH`: tamanho mínimo para senhas novas de oficinas e usuários; mantenha 12+ em staging/produção.
 - `LOGIN_MAX_ATTEMPTS`: quantidade de falhas permitidas na janela de segurança.
 - `LOGIN_WINDOW_SECONDS`: janela usada para contar falhas de login.
 - `LOGIN_LOCK_SECONDS`: tempo de bloqueio temporário após excesso de falhas.
@@ -38,6 +39,7 @@ O sistema já possui:
 
 - Configuração por ambiente via `.env`.
 - Hash de senha com PBKDF2 e migração automática de hashes legados no login.
+- Política mínima de 12 caracteres para senhas novas de oficinas e usuários.
 - Sessões persistidas no banco com hash do token.
 - Auditoria de tentativas de login com IP, user-agent, motivo e bloqueio temporário por excesso de falhas.
 - Usuário administrador inicial configurável por ambiente.

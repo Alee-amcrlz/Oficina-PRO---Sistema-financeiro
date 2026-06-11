@@ -2244,8 +2244,8 @@ async function changeUserPassword(id) {
   const newPassword = prompt(`Digite a nova senha para ${user.name}:`);
   if (!newPassword) return;
 
-  if (newPassword.length < 6) {
-    alert("A senha precisa ter pelo menos 6 caracteres.");
+  if (newPassword.length < 12) {
+    alert("A senha precisa ter pelo menos 12 caracteres.");
     return;
   }
 
@@ -3017,6 +3017,11 @@ function bindEvents() {
       ownerPassword: $("#platformOwnerPassword").value
     };
 
+    if (payload.ownerPassword.length < 12) {
+      setMessage($("#platformCompanyMessage"), "A senha inicial do dono precisa ter pelo menos 12 caracteres.");
+      return;
+    }
+
     try {
       await createPlatformCompany(payload);
       clearPlatformCompanyForm();
@@ -3375,13 +3380,13 @@ function bindEvents() {
       return;
     }
 
-    if (!isEditingUser && password.length < 6) {
-      setMessage($("#userCreateMessage"), "Informe uma senha com pelo menos 6 caracteres.");
+    if (!isEditingUser && password.length < 12) {
+      setMessage($("#userCreateMessage"), "Informe uma senha com pelo menos 12 caracteres.");
       return;
     }
 
-    if (isEditingUser && password && password.length < 6) {
-      setMessage($("#userCreateMessage"), "A nova senha precisa ter pelo menos 6 caracteres.");
+    if (isEditingUser && password && password.length < 12) {
+      setMessage($("#userCreateMessage"), "A nova senha precisa ter pelo menos 12 caracteres.");
       return;
     }
 

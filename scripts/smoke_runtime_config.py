@@ -19,6 +19,7 @@ BASE_ENV = {
     "BILLING_PROVIDER": "mercadopago",
     "MERCADOPAGO_ACCESS_TOKEN": "TEST-token-runtime-config",
     "MERCADOPAGO_WEBHOOK_SECRET": "segredo-runtime-com-mais-de-32-caracteres",
+    "MIN_USER_PASSWORD_LENGTH": "12",
 }
 
 
@@ -67,6 +68,10 @@ def main():
     insecure_public_url = run_runtime({"PUBLIC_APP_URL": "http://oficina-pro.example.com"})
     expect(insecure_public_url.returncode != 0, "runtime recusa produção sem HTTPS", insecure_public_url.stdout)
     expect("HTTPS" in insecure_public_url.stdout, "runtime aponta HTTPS obrigatório", insecure_public_url.stdout)
+
+    weak_password_policy = run_runtime({"MIN_USER_PASSWORD_LENGTH": "6"})
+    expect(weak_password_policy.returncode != 0, "runtime recusa política de senha fraca online", weak_password_policy.stdout)
+    expect("MIN_USER_PASSWORD_LENGTH" in weak_password_policy.stdout, "runtime aponta política mínima de senha", weak_password_policy.stdout)
 
     staging_manual = run_runtime(
         {

@@ -117,7 +117,7 @@ def main():
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     suffix_a = f"a{stamp}"
     suffix_b = f"b{stamp}"
-    owner_password = "Teste@12345"
+    owner_password = "Teste@123456"
 
     master = login(MASTER_LOGIN, MASTER_PASSWORD)
     owner_a, _ = create_company(master["token"], suffix_a, owner_password)

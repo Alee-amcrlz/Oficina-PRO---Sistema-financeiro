@@ -56,7 +56,7 @@ def mercadopago_headers(resource_id):
 def main():
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     owner_email = f"dono.checkout.{stamp}@oficinapro.local"
-    owner_password = "Teste@12345"
+    owner_password = "Teste@123456"
     master = login(MASTER_LOGIN, MASTER_PASSWORD)
 
     status, company = call(

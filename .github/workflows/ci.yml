@@ -27,7 +27,7 @@ jobs:
           node-version: "22"
 
       - name: Python syntax
-        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/restore_sqlite_backup.py scripts/smoke_api.py scripts/smoke_multiempresa.py scripts/smoke_billing_checkout.py scripts/smoke_billing_webhook.py scripts/smoke_preflight_security.py scripts/smoke_runtime_config.py scripts/smoke_origin_guard.py scripts/verify_staging.py scripts/validate_schema.py scripts/validate_migrations.py scripts/release_check.py scripts/export_sqlite_jsonl.py scripts/export_postgres_jsonl.py scripts/apply_postgres_baseline.py scripts/import_jsonl_to_postgres.py
+        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/restore_sqlite_backup.py scripts/smoke_api.py scripts/smoke_multiempresa.py scripts/smoke_billing_checkout.py scripts/smoke_billing_webhook.py scripts/smoke_preflight_security.py scripts/smoke_runtime_config.py scripts/smoke_origin_guard.py scripts/smoke_password_policy.py scripts/verify_staging.py scripts/validate_schema.py scripts/validate_migrations.py scripts/release_check.py scripts/export_sqlite_jsonl.py scripts/export_postgres_jsonl.py scripts/apply_postgres_baseline.py scripts/import_jsonl_to_postgres.py
 
       - name: JavaScript syntax
         run: node --check app.js
@@ -83,6 +83,9 @@ jobs:
 
       - name: Smoke multiempresa
         run: python scripts/smoke_multiempresa.py
+
+      - name: Smoke password policy
+        run: python scripts/smoke_password_policy.py
 
       - name: Smoke billing checkout
         run: python scripts/smoke_billing_checkout.py
@@ -167,6 +170,9 @@ jobs:
 
       - name: Smoke multiempresa PostgreSQL
         run: python scripts/smoke_multiempresa.py
+
+      - name: Smoke password policy PostgreSQL
+        run: python scripts/smoke_password_policy.py
 
       - name: Smoke billing checkout PostgreSQL
         run: python scripts/smoke_billing_checkout.py

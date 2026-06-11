@@ -37,12 +37,14 @@ def main():
             "DEFAULT_ADMIN_USERNAME": "master",
             "DEFAULT_ADMIN_EMAIL": "master@oficina.local",
             "DEFAULT_ADMIN_PASSWORD": "Master@123",
+            "MIN_USER_PASSWORD_LENGTH": "6",
             "MERCADOPAGO_WEBHOOK_SECRET": "curto",
         }
     )
     expect(insecure.returncode != 0, "preflight recusa credenciais online inseguras", insecure.stdout)
     expect("DEFAULT_ADMIN_USERNAME" in insecure.stdout, "preflight aponta usuário admin padrão", insecure.stdout)
     expect("MERCADOPAGO_WEBHOOK_SECRET" in insecure.stdout, "preflight aponta webhook secret curto", insecure.stdout)
+    expect("MIN_USER_PASSWORD_LENGTH" in insecure.stdout, "preflight aponta política de senha fraca", insecure.stdout)
 
     secure = run_preflight(
         {
@@ -53,6 +55,7 @@ def main():
             "DEFAULT_ADMIN_USERNAME": "admin_staging",
             "DEFAULT_ADMIN_EMAIL": "admin.staging@oficinapro.local",
             "DEFAULT_ADMIN_PASSWORD": "SenhaForte@12345",
+            "MIN_USER_PASSWORD_LENGTH": "12",
             "MERCADOPAGO_WEBHOOK_SECRET": "segredo-ci-com-mais-de-32-caracteres",
             "BILLING_PROVIDER": "manual",
         }

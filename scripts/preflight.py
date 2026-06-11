@@ -45,6 +45,7 @@ def main():
     default_admin_email = os.environ.get("DEFAULT_ADMIN_EMAIL", "master@oficina.local").strip().lower()
     default_admin_username = os.environ.get("DEFAULT_ADMIN_USERNAME", "master").strip().lower()
     default_admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "Master@123")
+    min_user_password_length = int(os.environ.get("MIN_USER_PASSWORD_LENGTH", "12"))
     billing_provider = os.environ.get("BILLING_PROVIDER", "manual").strip().lower()
     mercadopago_access_token = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "").strip()
     mercadopago_webhook_secret = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
@@ -81,6 +82,8 @@ def main():
             fail("DEFAULT_ADMIN_PASSWORD precisa ser alterada em ambiente online.", failures)
         if len(default_admin_password) < 12:
             fail("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.", failures)
+        if min_user_password_length < 12:
+            fail("MIN_USER_PASSWORD_LENGTH precisa ser pelo menos 12 em ambiente online.", failures)
         if mercadopago_webhook_secret and len(mercadopago_webhook_secret) < 32:
             fail("MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em ambiente online.", failures)
 
