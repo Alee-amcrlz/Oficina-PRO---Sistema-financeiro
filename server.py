@@ -61,6 +61,25 @@ PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "").strip().rstrip("/")
 ONLINE_ENVS = {"staging", "production"}
 
 
+def online_security_failures():
+    failures = []
+    if APP_ENV not in ONLINE_ENVS:
+        return failures
+    if DEFAULT_ADMIN_EMAIL == "master@oficina.local":
+        failures.append("DEFAULT_ADMIN_EMAIL precisa ser um email administrativo real em ambiente online.")
+    if DEFAULT_ADMIN_USERNAME == "master":
+        failures.append("DEFAULT_ADMIN_USERNAME precisa ser alterado em ambiente online.")
+    if DEFAULT_ADMIN_PASSWORD == "Master@123":
+        failures.append("DEFAULT_ADMIN_PASSWORD precisa ser alterada em ambiente online.")
+    if len(DEFAULT_ADMIN_PASSWORD) < 12:
+        failures.append("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.")
+    if MERCADOPAGO_WEBHOOK_SECRET and len(MERCADOPAGO_WEBHOOK_SECRET) < 32:
+        failures.append("MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em ambiente online.")
+    if BILLING_PROVIDER == "mercadopago" and not PUBLIC_APP_URL.startswith("https://"):
+        failures.append("BILLING_PROVIDER=mercadopago exige PUBLIC_APP_URL com HTTPS em ambiente online.")
+    return failures
+
+
 def validate_runtime_config():
     failures = []
     allowed_envs = {"local", "staging", "production"}
@@ -77,13 +96,7 @@ def validate_runtime_config():
     if APP_ENV in ONLINE_ENVS and HOST in {"127.0.0.1", "localhost"}:
         failures.append("HOST precisa ser 0.0.0.0 em staging/production.")
 
-    if APP_ENV in ONLINE_ENVS:
-        if DEFAULT_ADMIN_PASSWORD == "Master@123":
-            failures.append("DEFAULT_ADMIN_PASSWORD precisa ser alterada em ambiente online.")
-        if len(DEFAULT_ADMIN_PASSWORD) < 12:
-            failures.append("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.")
-        if DEFAULT_ADMIN_EMAIL == "master@oficina.local":
-            failures.append("DEFAULT_ADMIN_EMAIL precisa ser um email administrativo real em ambiente online.")
+    failures.extend(online_security_failures())
 
     if APP_ENV == "production":
         if BILLING_PROVIDER != "mercadopago":
@@ -720,7 +733,19 @@ def readiness_report():
 
     online = APP_ENV in ONLINE_ENVS
     add_check("admin_email", not (online and DEFAULT_ADMIN_EMAIL == "master@oficina.local"), "default admin email")
+    add_check("admin_username", not (online and DEFAULT_ADMIN_USERNAME == "master"), "default admin username")
     add_check("admin_password", not (online and DEFAULT_ADMIN_PASSWORD == "Master@123"), "default admin password")
+    add_check("admin_password_length", not (online and len(DEFAULT_ADMIN_PASSWORD) < 12), "minimum 12 chars")
+    add_check(
+        "webhook_secret_strength",
+        not (online and MERCADOPAGO_WEBHOOK_SECRET and len(MERCADOPAGO_WEBHOOK_SECRET) < 32),
+        "minimum 32 chars",
+    )
+    add_check(
+        "billing_public_url_https",
+        not (online and BILLING_PROVIDER == "mercadopago" and not PUBLIC_APP_URL.startswith("https://")),
+        "HTTPS required for Mercado Pago",
+    )
     add_check("production_database", not (APP_ENV == "production" and not DATABASE_URL), "DATABASE_URL required")
     add_check("billing_provider", BILLING_PROVIDER in {"manual", "mercadopago"}, BILLING_PROVIDER)
     if APP_ENV == "production":

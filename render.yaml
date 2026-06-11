@@ -46,7 +46,7 @@ services:
       - key: DEFAULT_ADMIN_NAME
         value: MASTER
       - key: DEFAULT_ADMIN_USERNAME
-        value: master
+        sync: false
       - key: DEFAULT_ADMIN_EMAIL
         sync: false
       - key: DEFAULT_ADMIN_PASSWORD

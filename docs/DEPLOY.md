@@ -24,9 +24,9 @@ Variáveis principais:
 - `LOGIN_WINDOW_SECONDS`: janela usada para contar falhas de login.
 - `LOGIN_LOCK_SECONDS`: tempo de bloqueio temporário após excesso de falhas.
 - `DEFAULT_ADMIN_NAME`: nome do administrador inicial.
-- `DEFAULT_ADMIN_USERNAME`: usuário curto do administrador inicial.
+- `DEFAULT_ADMIN_USERNAME`: usuário curto do administrador inicial; em staging/produção não pode ser `master`.
 - `DEFAULT_ADMIN_EMAIL`: e-mail do administrador inicial.
-- `DEFAULT_ADMIN_PASSWORD`: senha do administrador inicial.
+- `DEFAULT_ADMIN_PASSWORD`: senha do administrador inicial; em staging/produção deve ter 12+ caracteres e não pode ser a padrão local.
 - `BILLING_PROVIDER`: `manual` em homologação ou `mercadopago` em produção.
 - `PUBLIC_APP_URL`: URL pública do sistema.
 - `MERCADOPAGO_ACCESS_TOKEN`: token do Mercado Pago.
@@ -59,11 +59,13 @@ O próximo passo externo é criar o staging no Render a partir de `render.yaml`,
 - Configurar `APP_ENV=staging`.
 - Configurar `HOST=0.0.0.0`.
 - Configurar `DEFAULT_ADMIN_EMAIL` com e-mail administrativo real.
+- Configurar `DEFAULT_ADMIN_USERNAME` com usuário administrativo exclusivo, diferente de `master`.
 - Configurar `DEFAULT_ADMIN_PASSWORD` com senha forte e exclusiva.
 - Para Render, usar `render.yaml` como blueprint de staging com PostgreSQL gerenciado e preencher os segredos solicitados no painel.
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.
 - Confirmar `BILLING_PROVIDER=manual` para staging sem cobrança real, ou `mercadopago` para sandbox de pagamento.
+- Se configurar `MERCADOPAGO_WEBHOOK_SECRET`, usar segredo aleatório com pelo menos 32 caracteres.
 - Se usar sandbox Mercado Pago, configurar webhook para `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
 - Testar contratação pelo painel **Minha assinatura** e conferir a solicitação em **Contratações recentes** no Painel Master.
 - Confirmar no sandbox que eventos sem status aprovado/autorizado não liberam escrita.
