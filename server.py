@@ -60,6 +60,7 @@ MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "").strip(
 MERCADOPAGO_WEBHOOK_SECRET = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
 MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS = env_int("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS", 10 * 60)
 PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "").strip().rstrip("/")
+MARKETING_SITE_URL = os.environ.get("MARKETING_SITE_URL", "").strip().rstrip("/")
 ONLINE_ENVS = {"staging", "production"}
 
 
@@ -70,6 +71,19 @@ def public_app_origin():
     if not parsed.scheme or not parsed.netloc:
         return ""
     return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+
+def marketing_site_origin():
+    if not MARKETING_SITE_URL:
+        return ""
+    parsed = urlparse(MARKETING_SITE_URL)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+
+def public_allowed_origins():
+    return {origin for origin in (public_app_origin(), marketing_site_origin()) if origin}
 
 
 def online_security_failures():
@@ -94,6 +108,10 @@ def online_security_failures():
         failures.append("PUBLIC_APP_URL precisa estar configurada com URL pública válida em ambiente online.")
     if BILLING_PROVIDER == "mercadopago" and not PUBLIC_APP_URL.startswith("https://"):
         failures.append("BILLING_PROVIDER=mercadopago exige PUBLIC_APP_URL com HTTPS em ambiente online.")
+    if MARKETING_SITE_URL and not marketing_site_origin():
+        failures.append("MARKETING_SITE_URL precisa ser uma URL valida quando configurada.")
+    if APP_ENV == "production" and MARKETING_SITE_URL and not MARKETING_SITE_URL.startswith("https://"):
+        failures.append("MARKETING_SITE_URL precisa usar HTTPS em produção.")
     return failures
 
 
@@ -196,6 +214,7 @@ REQUIRED_SCHEMA_COLUMNS = {
     "billing_checkout_requests": {"id", "companyId", "subscriptionId", "plan", "billingCycle", "provider", "amount", "status"},
     "billing_webhook_events": {"id", "provider", "eventId", "eventType", "action", "resourceId", "requestId", "payload", "receivedAt"},
     "platform_audit_log": {"id", "actorUserId", "action", "targetCompanyId", "details", "createdAt"},
+    "marketing_leads": {"id", "name", "email", "plan", "billingCycle", "status", "createdAt"},
     "schema_migrations": {"version", "appliedAt"},
 }
 
@@ -205,6 +224,7 @@ REQUIRED_SCHEMA_MIGRATIONS = {
     "20260609_login_audit",
     "20260610_billing_webhooks",
     "20260610_billing_checkout_requests",
+    "20260612_marketing_leads",
 }
 
 DEFAULT_ACCESS_LEVELS = {
@@ -435,6 +455,22 @@ AUDIT_COLUMNS = [
     "targetCompanyId",
     "details",
     "createdAt",
+]
+
+MARKETING_LEAD_COLUMNS = [
+    "name",
+    "email",
+    "phone",
+    "companyName",
+    "plan",
+    "billingCycle",
+    "source",
+    "message",
+    "status",
+    "ipAddress",
+    "userAgent",
+    "createdAt",
+    "updatedAt",
 ]
 
 SESSION_COLUMNS = [
@@ -1478,6 +1514,23 @@ def init_db():
                 FOREIGN KEY (targetCompanyId) REFERENCES companies(id)
             );
 
+            CREATE TABLE IF NOT EXISTS marketing_leads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT,
+                companyName TEXT,
+                plan TEXT NOT NULL,
+                billingCycle TEXT NOT NULL DEFAULT 'monthly',
+                source TEXT,
+                message TEXT,
+                status TEXT NOT NULL DEFAULT 'new',
+                ipAddress TEXT,
+                userAgent TEXT,
+                createdAt TEXT,
+                updatedAt TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_accounts_payable_created ON accounts_payable(createdAt);
             CREATE INDEX IF NOT EXISTS idx_accounts_payable_due ON accounts_payable(competenceDate);
             CREATE INDEX IF NOT EXISTS idx_accounts_payable_supplier ON accounts_payable(supplierName COLLATE NOCASE);
@@ -1487,6 +1540,9 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
             CREATE INDEX IF NOT EXISTS idx_platform_audit_created ON platform_audit_log(createdAt);
             CREATE INDEX IF NOT EXISTS idx_platform_audit_company ON platform_audit_log(targetCompanyId);
+            CREATE INDEX IF NOT EXISTS idx_marketing_leads_created ON marketing_leads(createdAt);
+            CREATE INDEX IF NOT EXISTS idx_marketing_leads_email ON marketing_leads(email COLLATE NOCASE);
+            CREATE INDEX IF NOT EXISTS idx_marketing_leads_status ON marketing_leads(status);
             """
         )
         ensure_column(conn, "users", "companyId", "INTEGER")
@@ -1540,6 +1596,12 @@ def init_db():
             """
             INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
             VALUES ('20260610_billing_checkout_requests', datetime('now'))
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, appliedAt)
+            VALUES ('20260612_marketing_leads', datetime('now'))
             """
         )
 
@@ -1732,6 +1794,10 @@ def row_to_checkout_request(row):
     return dict(row) if row is not None else None
 
 
+def row_to_marketing_lead(row):
+    return dict(row) if row is not None else None
+
+
 def normalize_user(payload, existing=None):
     data = {key: payload.get(key) for key in USER_COLUMNS}
     data["email"] = str(data.get("email") or "").lower().strip()
@@ -1879,6 +1945,48 @@ def normalize_checkout_plan(payload):
     if amount <= 0:
         raise ValueError("Plano sem valor comercial não pode gerar cobrança.")
     return plan, cycle, plan_info, amount
+
+
+def clamp_text(value, limit):
+    return str(value or "").strip()[:limit]
+
+
+def normalize_marketing_lead(payload, ip_address="", user_agent=""):
+    if str(payload.get("website") or "").strip():
+        raise ValueError("Lead ignorado.")
+
+    name = clamp_text(payload.get("name"), 120)
+    email = clamp_text(payload.get("email"), 180).lower()
+    phone = clamp_text(payload.get("phone"), 40)
+    company_name = clamp_text(payload.get("companyName") or payload.get("company"), 160)
+    plan = normalize_plan_code(payload.get("plan") or "profissional")
+    cycle = normalize_billing_cycle(payload.get("billingCycle") or "monthly")
+    source = clamp_text(payload.get("source") or "site", 80)
+    message = clamp_text(payload.get("message"), 1000)
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    if not name:
+        raise ValueError("Informe seu nome.")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise ValueError("Informe um e-mail válido.")
+    if plan in {"trial", "homologacao"}:
+        raise ValueError("Escolha um plano comercial.")
+
+    return {
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "companyName": company_name,
+        "plan": plan,
+        "billingCycle": cycle,
+        "source": source,
+        "message": message,
+        "status": "new",
+        "ipAddress": clamp_text(ip_address, 80),
+        "userAgent": clamp_text(user_agent, 300),
+        "createdAt": now,
+        "updatedAt": now,
+    }
 
 
 def latest_company_subscription(conn, company_id):
@@ -2548,8 +2656,31 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_public_cors_headers()
         self.end_headers()
         self.wfile.write(body)
+
+    def send_public_cors_headers(self):
+        origin = self.request_origin()
+        if origin and origin in public_allowed_origins():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def do_OPTIONS(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/public/leads":
+            origin = self.request_origin()
+            allowed = APP_ENV not in ONLINE_ENVS or origin in public_allowed_origins()
+            self.send_response(204 if allowed else 403)
+            if allowed:
+                self.send_public_cors_headers()
+                self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+                self.send_header("Access-Control-Max-Age", "600")
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -2574,6 +2705,12 @@ class Handler(SimpleHTTPRequestHandler):
             return True
         if path == "/api/billing/webhooks/mercadopago":
             return True
+        if path == "/api/public/leads":
+            request_origin = self.request_origin()
+            if request_origin and request_origin in public_allowed_origins():
+                return True
+            self.send_json({"error": "Origem da requisição não autorizada."}, 403)
+            return False
         allowed_origin = public_app_origin()
         if not allowed_origin:
             self.send_json({"error": "PUBLIC_APP_URL precisa estar configurada para validar origem."}, 403)
@@ -2633,6 +2770,17 @@ class Handler(SimpleHTTPRequestHandler):
             if path == "/api/plans":
                 self.send_json({
                     "plans": list(PLAN_CATALOG.values()),
+                    "billingCycles": BILLING_CYCLES,
+                })
+                return
+
+            if path == "/api/public/plans":
+                public_plans = [
+                    plan_payload(code)
+                    for code in ("essencial", "profissional", "premium")
+                ]
+                self.send_json({
+                    "plans": public_plans,
                     "billingCycles": BILLING_CYCLES,
                 })
                 return
@@ -2785,6 +2933,25 @@ class Handler(SimpleHTTPRequestHandler):
                         (limit,),
                     ).fetchall()
                 self.send_json([row_to_audit(row) for row in rows])
+                return
+
+            if path == "/api/platform/marketing-leads":
+                if not is_platform_admin(auth_user):
+                    self.send_json({"error": "Acesso restrito ao painel master."}, 403)
+                    return
+
+                limit = int(query.get("limit", ["50"])[0] or 50)
+                limit = min(max(limit, 1), 100)
+                with connect() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM marketing_leads
+                        ORDER BY datetime(createdAt) DESC, id DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                self.send_json([row_to_marketing_lead(row) for row in rows])
                 return
 
             if path == "/api/users":
@@ -2969,6 +3136,32 @@ class Handler(SimpleHTTPRequestHandler):
         payload = self.read_json()
 
         try:
+            if parsed.path == "/api/public/leads":
+                try:
+                    data = normalize_marketing_lead(
+                        payload,
+                        self.client_address[0] if self.client_address else "",
+                        self.headers.get("User-Agent", ""),
+                    )
+                except ValueError as exc:
+                    if str(exc) == "Lead ignorado.":
+                        self.send_json({"ok": True}, 202)
+                    else:
+                        self.send_json({"error": str(exc)}, 400)
+                    return
+
+                columns = ", ".join(MARKETING_LEAD_COLUMNS)
+                marks = ", ".join(["?"] * len(MARKETING_LEAD_COLUMNS))
+                with connect() as conn:
+                    cursor = conn.execute(
+                        f"INSERT INTO marketing_leads ({columns}) VALUES ({marks})",
+                        [data[column] for column in MARKETING_LEAD_COLUMNS],
+                    )
+                    row = conn.execute("SELECT * FROM marketing_leads WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                lead = row_to_marketing_lead(row)
+                self.send_json({"ok": True, "lead": {"id": lead["id"], "status": lead["status"]}}, 201)
+                return
+
             if parsed.path == "/api/auth/login":
                 login = str(payload.get("login") or "").lower().strip()
                 password = payload.get("password") or ""

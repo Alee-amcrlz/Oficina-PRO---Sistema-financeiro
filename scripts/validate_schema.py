@@ -23,6 +23,7 @@ REQUIRED_COLUMNS = {
     "billing_checkout_requests": {"id", "companyId", "subscriptionId", "plan", "billingCycle", "provider", "amount", "status"},
     "billing_webhook_events": {"id", "provider", "eventId", "eventType", "action", "resourceId", "requestId", "payload", "receivedAt"},
     "platform_audit_log": {"id", "actorUserId", "action", "targetCompanyId", "details", "createdAt"},
+    "marketing_leads": {"id", "name", "email", "plan", "billingCycle", "status", "createdAt"},
     "schema_migrations": {"version", "appliedAt"},
 }
 
@@ -32,6 +33,7 @@ REQUIRED_MIGRATIONS = {
     "20260609_login_audit",
     "20260610_billing_webhooks",
     "20260610_billing_checkout_requests",
+    "20260612_marketing_leads",
 }
 
 

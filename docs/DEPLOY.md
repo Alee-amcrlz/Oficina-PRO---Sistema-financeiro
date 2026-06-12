@@ -33,6 +33,7 @@ Variáveis principais:
 - `MERCADOPAGO_ACCESS_TOKEN`: token do Mercado Pago.
 - `MERCADOPAGO_WEBHOOK_SECRET`: segredo usado para validar webhook.
 - `MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS`: janela máxima aceita para timestamp de webhook assinado.
+- `MARKETING_SITE_URL`: URL opcional do site de divulgação autorizado a enviar leads públicos.
 
 ## Estado atual
 
@@ -56,12 +57,15 @@ O sistema já possui:
 - Entrada segura de webhook Mercado Pago com validação HMAC e registro idempotente dos eventos.
 - Conciliação inicial para ativar assinatura apenas quando o webhook/preapproval vier aprovado ou autorizado.
 - Runner de migrações SQL pendentes com `python scripts/apply_migrations.py`.
+- Integração pública para site de divulgação listar planos e enviar leads sem acionar cobrança.
 
 ## Próxima fronteira técnica
 
 O próximo passo externo é criar o staging no Render a partir de `render.yaml`, preencher os segredos e validar a URL pública com os smokes.
 
 Depois do staging online, use `docs/OPERACAO_SAAS.md` como rotina de monitoramento, backup, suporte e incidentes.
+
+Para preparar o futuro site de divulgação, use `docs/SITE_DIVULGACAO.md`. Essa integração deve permanecer com `BILLING_PROVIDER=manual` em staging para não gerar cobrança.
 
 Antes de criar ou promover qualquer ambiente online, rode:
 
@@ -94,6 +98,7 @@ Para produção, use `--production`; o script muda `APP_ENV` para `production` e
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.
 - Confirmar `BILLING_PROVIDER=manual` para staging sem cobrança real, ou `mercadopago` para sandbox de pagamento.
+- Se já houver site de divulgação em teste, configurar `MARKETING_SITE_URL` com a URL pública dele.
 - Se configurar `MERCADOPAGO_WEBHOOK_SECRET`, usar segredo aleatório com pelo menos 32 caracteres.
 - Se usar sandbox Mercado Pago, configurar webhook para `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
 - Testar contratação pelo painel **Minha assinatura** e conferir a solicitação em **Contratações recentes** no Painel Master.

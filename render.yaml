@@ -45,6 +45,8 @@ services:
         value: manual
       - key: PUBLIC_APP_URL
         sync: false
+      - key: MARKETING_SITE_URL
+        sync: false
       - key: DEFAULT_ADMIN_NAME
         value: MASTER
       - key: DEFAULT_ADMIN_USERNAME

@@ -30,12 +30,14 @@ REQUIRED_SQLITE_EXCLUSIONS = {
     "login_audit",
     "billing_checkout_requests",
     "billing_webhook_events",
+    "marketing_leads",
 }
 
 REQUIRED_POSTGRES_LOGICAL_TABLES = REQUIRED_SQLITE_MIGRATION_TABLES | {
     "login_audit",
     "billing_checkout_requests",
     "billing_webhook_events",
+    "marketing_leads",
 }
 
 

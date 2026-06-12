@@ -36,6 +36,7 @@ Para produção comercial SaaS, o banco recomendado é PostgreSQL gerenciado.
 - Importe uma exportação SQLite JSONL com `python scripts/import_jsonl_to_postgres.py`.
 - Exporte backup lógico do PostgreSQL online com `python scripts/export_postgres_jsonl.py`.
 - A política oficial de tabelas de migração/backup fica em `scripts/data_tables.py` e é validada por `python scripts/validate_data_tables.py`.
+- Leads do site de divulgação entram no backup lógico PostgreSQL, mas não no pacote de migração SQLite entre ambientes.
 
 ## Ensaio de Migração
 
@@ -63,9 +64,9 @@ python scripts/import_jsonl_to_postgres.py --truncate
 
 Use `python scripts/export_postgres_jsonl.py` com `DATABASE_URL` configurado para gerar `exports/postgres-export-AAAAMMDD-HHMMSS`.
 
-Esse pacote inclui dados operacionais, auditoria de login, solicitações de checkout, webhooks, pagamentos e migrações. Sessões ativas não são exportadas para reduzir risco de reaproveitamento de token.
+Esse pacote inclui dados operacionais, leads do site, auditoria de login, solicitações de checkout, webhooks, pagamentos e migrações. Sessões ativas não são exportadas para reduzir risco de reaproveitamento de token.
 
-O pacote SQLite de migração para PostgreSQL é mais restrito: não inclui sessões ativas, auditoria de login, solicitações de checkout nem eventos de webhook, porque esses dados pertencem ao ambiente de origem.
+O pacote SQLite de migração para PostgreSQL é mais restrito: não inclui sessões ativas, auditoria de login, solicitações de checkout, eventos de webhook nem leads do site, porque esses dados pertencem ao ambiente de origem.
 
 O diretório exportado contém dados sensíveis e deve ser tratado como segredo: não enviar para repositório, não compartilhar por canais abertos e armazenar somente em local controlado.
 

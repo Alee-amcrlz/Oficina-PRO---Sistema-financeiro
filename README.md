@@ -57,6 +57,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Restore verificável de backup SQLite em `python scripts/restore_sqlite_backup.py`.
 - Guia de deploy em `docs/DEPLOY.md`.
 - Guia de operação SaaS em `docs/OPERACAO_SAAS.md`.
+- Guia de integração com site de divulgação em `docs/SITE_DIVULGACAO.md`.
 - Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
 - Sessões persistidas no banco com hash do token, em vez de memória do processo.
 - Auditoria de tentativas de login com bloqueio temporário contra força bruta.
@@ -74,6 +75,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Smoke test de checkout de assinatura em `python scripts/smoke_billing_checkout.py`.
 - Smoke test de webhook Mercado Pago em `python scripts/smoke_billing_webhook.py`.
 - Verificação de staging público em `python scripts/verify_staging.py`.
+- Smoke test de integração com site público em `python scripts/smoke_public_site_integration.py`.
 - Registro de baseline de schema em `schema_migrations`.
 - Snapshot auditável do schema em `migrations/20260609_web_saas_baseline.sqlite.sql`.
 - Baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
@@ -128,6 +130,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Base inicial de assinatura com tabelas `subscriptions` e `payments`.
 - Contratação ou alteração de plano pelo cliente a partir do painel "Minha assinatura".
 - Painel Master monitora contratações recentes iniciadas pelas oficinas.
+- Endpoints públicos para site de divulgação listar planos e enviar leads sem iniciar cobrança.
 - Entrada segura de webhook Mercado Pago com validação por assinatura e registro idempotente em `billing_webhook_events`.
 - Conciliação inicial de webhook autorizado para ativar assinatura somente após confirmação segura.
 - Registro automático e idempotente de pagamento aprovado quando o webhook traz ID e valor confiáveis.

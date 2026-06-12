@@ -15,6 +15,7 @@ MIGRATION_ORDER = [
     "20260609_login_audit",
     "20260610_billing_webhooks",
     "20260610_billing_checkout_requests",
+    "20260612_marketing_leads",
 ]
 
 

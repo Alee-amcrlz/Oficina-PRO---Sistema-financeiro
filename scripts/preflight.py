@@ -51,6 +51,7 @@ def main():
     mercadopago_webhook_secret = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
     mercadopago_webhook_max_skew = int(os.environ.get("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS", "600"))
     public_app_url = os.environ.get("PUBLIC_APP_URL", "").strip()
+    marketing_site_url = os.environ.get("MARKETING_SITE_URL", "").strip()
     failures = []
 
     ok(f"APP_ENV={env}")
@@ -108,6 +109,14 @@ def main():
             fail("Produção exige PUBLIC_APP_URL com HTTPS.", failures)
     elif env == "staging" and billing_provider == "mercadopago" and not public_app_url.startswith("https://"):
         fail("Staging com BILLING_PROVIDER=mercadopago exige PUBLIC_APP_URL com HTTPS.", failures)
+
+    if marketing_site_url:
+        if not valid_public_url(marketing_site_url):
+            fail("MARKETING_SITE_URL precisa ser uma URL valida.", failures)
+        elif env == "production" and not marketing_site_url.startswith("https://"):
+            fail("MARKETING_SITE_URL precisa usar HTTPS em produção.", failures)
+        else:
+            ok("MARKETING_SITE_URL configurada para integração com o site.")
 
     iterations = int(os.environ.get("PASSWORD_HASH_ITERATIONS", "260000"))
     if iterations < 260000:

@@ -20,6 +20,7 @@ SQLITE_MIGRATION_EXCLUDED_TABLES = {
     "login_audit": "Auditoria de login pode conter IP/user-agent e nao deve ser carregada entre ambientes.",
     "billing_checkout_requests": "Tentativas de checkout sao trilha operacional do ambiente.",
     "billing_webhook_events": "Eventos de webhook sao trilha operacional do ambiente.",
+    "marketing_leads": "Leads do site sao trilha comercial do ambiente e nao devem ser carregados entre homologacao e producao.",
 }
 
 POSTGRES_LOGICAL_EXPORT_TABLES = [
@@ -38,6 +39,7 @@ POSTGRES_LOGICAL_EXPORT_TABLES = [
     "payments",
     "billing_checkout_requests",
     "billing_webhook_events",
+    "marketing_leads",
     "platform_audit_log",
     "schema_migrations",
 ]
