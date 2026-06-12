@@ -64,7 +64,10 @@ function renderPlansGrid() {
     return `
       <article class="plan-card${highlight}">
         <div>
-          <h3>${escapeHtml(plan.name)}</h3>
+          <div class="plan-title-row">
+            <h3>${escapeHtml(plan.name)}</h3>
+            ${plan.code === "profissional" ? '<span class="plan-tag">Mais escolhido</span>' : ""}
+          </div>
           <p>${escapeHtml(plan.description)}</p>
         </div>
         <div class="plan-price">
@@ -80,9 +83,17 @@ function renderPlansGrid() {
 
 function selectedParams() {
   const params = new URLSearchParams(window.location.search);
+  const cycleAliases = {
+    annual: "yearly",
+    anual: "yearly",
+    quarterly: "quarterly",
+    trimestral: "quarterly",
+    mensal: "monthly"
+  };
+  const rawCycle = params.get("ciclo") || params.get("cycle") || "monthly";
   return {
     plan: params.get("plano") || params.get("plan") || "profissional",
-    cycle: params.get("ciclo") || params.get("cycle") || "monthly"
+    cycle: cycleAliases[rawCycle] || rawCycle
   };
 }
 

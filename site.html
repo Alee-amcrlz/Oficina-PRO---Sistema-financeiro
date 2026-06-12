@@ -15,7 +15,9 @@
   <body>
     <header class="site-header">
       <a class="brand" href="site.html" aria-label="Oficina Pro">
-        <img src="assets/oficina-pro-logo-transparent.png" alt="" width="40" height="40">
+        <span class="brand-mark">
+          <img src="assets/oficina-pro-logo-transparent.png" alt="" width="40" height="40">
+        </span>
         <span>Oficina Pro</span>
       </a>
       <nav aria-label="Navegação">
@@ -29,38 +31,77 @@
     <main>
       <section class="hero">
         <div class="hero-content">
-          <p class="eyebrow">Sistema Web SaaS para oficinas</p>
-          <h1>Atendimento, oficina e financeiro no mesmo fluxo.</h1>
-          <p class="hero-copy">Controle clientes, veículos, orçamentos, ordens de serviço, estoque e assinaturas em uma operação limpa, rápida e pronta para crescer.</p>
+          <p class="eyebrow">Oficina Pro SaaS</p>
+          <h1>Gestão de oficina com cara de operação profissional.</h1>
+          <p class="hero-copy">Atendimento, veículos, orçamentos, ordens de serviço, estoque e financeiro conectados em uma plataforma pronta para crescer com segurança.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="assinar.html">Ver planos</a>
             <a class="button button-ghost" href="#recursos">Conhecer recursos</a>
           </div>
+          <div class="hero-proof" aria-label="Diferenciais do Oficina Pro">
+            <span>Painel Master para operação SaaS</span>
+            <span>Privacidade por oficina</span>
+            <span>Sem cobrança automática na homologação</span>
+          </div>
         </div>
         <figure class="product-visual" aria-label="Prévia do painel Oficina Pro">
-          <img src="assets/oficina-pro-logo-transparent.png" alt="Oficina Pro" class="product-logo" width="96" height="96">
-          <div class="visual-topbar">
-            <span></span>
-            <span></span>
-            <span></span>
+          <div class="preview-header">
+            <div class="preview-brand">
+              <span class="brand-mark brand-mark-compact">
+                <img src="assets/oficina-pro-logo-transparent.png" alt="" width="40" height="40">
+              </span>
+              <div>
+                <strong>Oficina Pro</strong>
+                <span>Painel operacional</span>
+              </div>
+            </div>
+            <span class="preview-status">Online</span>
           </div>
-          <div class="visual-grid">
-            <div class="visual-panel visual-panel-main">
-              <strong>Atendimento</strong>
-              <span>Orçamento aprovado</span>
-              <div class="visual-progress"><i></i></div>
-            </div>
-            <div class="visual-panel">
-              <strong>OS</strong>
-              <span>Em andamento</span>
-            </div>
-            <div class="visual-panel">
-              <strong>Estoque</strong>
-              <span>Peças críticas</span>
-            </div>
-            <div class="visual-panel visual-panel-wide">
-              <strong>Financeiro</strong>
-              <span>Fluxo de caixa limpo por status</span>
+          <div class="preview-layout">
+            <aside class="preview-sidebar" aria-hidden="true">
+              <span class="active"></span>
+              <span></span>
+              <span></span>
+              <span></span>
+            </aside>
+            <div class="preview-workspace">
+              <div class="preview-metrics">
+                <article>
+                  <span>OS abertas</span>
+                  <strong>18</strong>
+                </article>
+                <article>
+                  <span>Orçamentos</span>
+                  <strong>42</strong>
+                </article>
+                <article>
+                  <span>Recebimentos</span>
+                  <strong>R$ 38,4 mil</strong>
+                </article>
+              </div>
+              <div class="service-flow">
+                <div class="flow-row">
+                  <span class="flow-dot approved"></span>
+                  <div>
+                    <strong>Honda Civic - revisão completa</strong>
+                    <span>OS #1042 em execução</span>
+                  </div>
+                  <em>72%</em>
+                </div>
+                <div class="visual-progress"><i></i></div>
+                <div class="flow-row muted">
+                  <span class="flow-dot"></span>
+                  <div>
+                    <strong>Fiat Toro - orçamento enviado</strong>
+                    <span>Aguardando aprovação do cliente</span>
+                  </div>
+                  <em>Hoje</em>
+                </div>
+              </div>
+              <div class="finance-ribbon">
+                <span>Fluxo de caixa</span>
+                <strong>Receitas e despesas separadas por oficina</strong>
+              </div>
             </div>
           </div>
         </figure>
@@ -68,16 +109,16 @@
 
       <section class="trust-strip" aria-label="Resumo do sistema">
         <article>
-          <strong>Multiempresa</strong>
-          <span>Base preparada para SaaS</span>
+          <strong>Multiempresa real</strong>
+          <span>Estrutura pronta para separar cada oficina</span>
         </article>
         <article>
-          <strong>Segurança</strong>
-          <span>Sessões, auditoria e origem validada</span>
+          <strong>Governança</strong>
+          <span>Painel Master com visão administrativa controlada</span>
         </article>
         <article>
-          <strong>Operação</strong>
-          <span>Clientes, veículos, OS e financeiro</span>
+          <strong>Comercial</strong>
+          <span>Leads e planos conectados ao fluxo de assinatura</span>
         </article>
       </section>
 
@@ -105,7 +146,7 @@
           <article>
             <span class="feature-icon">04</span>
             <h3>Painel Master</h3>
-            <p>Monitore oficinas, planos, pagamentos SaaS, leads e auditoria da plataforma.</p>
+            <p>Monitore oficinas, planos, pagamentos SaaS, leads e auditoria sem invadir dados sensíveis.</p>
           </article>
         </div>
       </section>
@@ -123,8 +164,8 @@
       <section class="cta-band">
         <div>
           <p class="eyebrow">Próximo passo</p>
-          <h2>Escolha um plano e deixe seu interesse registrado.</h2>
-          <p>Por enquanto o fluxo não cobra automaticamente. Nossa equipe recebe seu pedido e acompanha a ativação.</p>
+          <h2>Escolha um plano e entre na fila de ativação.</h2>
+          <p>A contratação fica preparada para Mercado Pago e Pix recorrente, mas a cobrança automática segue desligada na homologação.</p>
         </div>
         <a class="button button-primary" href="assinar.html">Ir para assinatura</a>
       </section>
