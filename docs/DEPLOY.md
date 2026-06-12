@@ -61,6 +61,8 @@ O sistema já possui:
 
 O próximo passo externo é criar o staging no Render a partir de `render.yaml`, preencher os segredos e validar a URL pública com os smokes.
 
+Depois do staging online, use `docs/OPERACAO_SAAS.md` como rotina de monitoramento, backup, suporte e incidentes.
+
 Antes de criar ou promover qualquer ambiente online, rode:
 
 ```powershell
@@ -114,6 +116,7 @@ python scripts/verify_staging.py
 - Ativar HTTPS na plataforma.
 - Usar dados fictícios.
 - Testar login, multiempresa, planos, orçamento, OS, financeiro e estoque.
+- Seguir a rotina operacional de `docs/OPERACAO_SAAS.md`.
 
 ## Checklist de produção
 
@@ -129,3 +132,4 @@ python scripts/verify_staging.py
 - Ativar domínio próprio e HTTPS.
 - Rodar teste de isolamento multiempresa.
 - Rodar teste de restauração de backup.
+- Seguir a rotina operacional de `docs/OPERACAO_SAAS.md`.
