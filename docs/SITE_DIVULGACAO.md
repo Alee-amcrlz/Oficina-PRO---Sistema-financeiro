@@ -13,6 +13,20 @@ O site de divulgacao podera:
 - direcionar o cliente para login ou para contato comercial;
 - manter pagamentos reais desligados ate a liberacao de producao.
 
+## Paginas no projeto
+
+- `site.html`: pagina publica de divulgacao do Oficina Pro.
+- `assinar.html`: pagina para o cliente escolher plano e registrar interesse.
+- `site.css`: identidade visual, layout responsivo e animacoes leves.
+- `site.js`: carregamento dinamico de planos e envio de leads.
+
+URLs locais:
+
+```text
+http://127.0.0.1:4173/site.html
+http://127.0.0.1:4173/assinar.html
+```
+
 ## Variaveis
 
 No ambiente do app SaaS:

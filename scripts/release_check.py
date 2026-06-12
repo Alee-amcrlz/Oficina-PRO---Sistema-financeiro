@@ -66,7 +66,8 @@ def main():
     ]
 
     if node_bin:
-        steps.insert(1, ("Sintaxe JavaScript", [node_bin, "--check", "app.js"]))
+        steps.insert(1, ("Sintaxe JavaScript app", [node_bin, "--check", "app.js"]))
+        steps.insert(2, ("Sintaxe JavaScript site", [node_bin, "--check", "site.js"]))
     else:
         print("[AVISO] Node.js nao encontrado no PATH; pulando sintaxe JavaScript local.")
 

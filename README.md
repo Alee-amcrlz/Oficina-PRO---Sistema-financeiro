@@ -17,6 +17,14 @@ Esta versão está em homologação local e prepara o sistema para multiempresa,
 7. Use **Aprovar** ou **Reprovar** depois do retorno do cliente.
 8. Somente orçamentos aprovados aparecem em **Financeiro > Fluxo de caixa**.
 
+## Site de divulgação
+
+- Página pública: `http://127.0.0.1:4173/site.html`
+- Página de escolha de plano: `http://127.0.0.1:4173/assinar.html`
+- O site carrega planos por `GET /api/public/plans`.
+- O formulário de assinatura registra interesse por `POST /api/public/leads`.
+- Em homologação, esse fluxo não cria cobrança real.
+
 ## Usuário administrador
 
 O sistema cria automaticamente um usuário administrador:
@@ -58,6 +66,7 @@ Para produção comercial SaaS, a recomendação técnica é migrar para Postgre
 - Guia de deploy em `docs/DEPLOY.md`.
 - Guia de operação SaaS em `docs/OPERACAO_SAAS.md`.
 - Guia de integração com site de divulgação em `docs/SITE_DIVULGACAO.md`.
+- Site público de divulgação em `site.html`, `assinar.html`, `site.css` e `site.js`.
 - Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
 - Sessões persistidas no banco com hash do token, em vez de memória do processo.
 - Auditoria de tentativas de login com bloqueio temporário contra força bruta.

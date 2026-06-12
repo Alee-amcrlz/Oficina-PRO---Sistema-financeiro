@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Escolha um plano do Oficina Pro e registre seu interesse.">
+    <meta name="theme-color" content="#1d4f91">
+    <title>Assinar Oficina Pro</title>
+    <link rel="stylesheet" href="site.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="site.html" aria-label="Oficina Pro">
+        <img src="assets/oficina-pro-logo-transparent.png" alt="" width="40" height="40">
+        <span>Oficina Pro</span>
+      </a>
+      <nav aria-label="Navegação">
+        <a href="site.html#recursos">Recursos</a>
+        <a href="site.html#planos">Planos</a>
+        <a href="index.html">Entrar</a>
+      </nav>
+    </header>
+
+    <main class="signup-shell">
+      <section class="signup-copy">
+        <p class="eyebrow">Assinatura</p>
+        <h1>Escolha o plano ideal para sua oficina.</h1>
+        <p>Este formulário registra seu interesse e envia para o Painel Master. A cobrança automática permanece desligada enquanto estivermos em homologação.</p>
+        <div id="selectedPlanPreview" class="selected-plan-preview"></div>
+      </section>
+
+      <section class="signup-panel" aria-labelledby="signupTitle">
+        <h2 id="signupTitle">Dados para contato</h2>
+        <form id="leadForm" class="lead-form">
+          <input id="leadWebsite" name="website" type="text" autocomplete="off" tabindex="-1" aria-hidden="true">
+          <label>
+            Nome
+            <input id="leadName" name="name" type="text" autocomplete="name" required>
+          </label>
+          <label>
+            E-mail
+            <input id="leadEmail" name="email" type="email" autocomplete="email" required>
+          </label>
+          <label>
+            Telefone
+            <input id="leadPhone" name="phone" type="tel" autocomplete="tel">
+          </label>
+          <label>
+            Nome da oficina
+            <input id="leadCompany" name="companyName" type="text" autocomplete="organization">
+          </label>
+          <div class="form-row">
+            <label>
+              Plano
+              <select id="leadPlan" name="plan" required></select>
+            </label>
+            <label>
+              Ciclo
+              <select id="leadCycle" name="billingCycle" required></select>
+            </label>
+          </div>
+          <label>
+            Mensagem
+            <textarea id="leadMessage" name="message" rows="4" placeholder="Conte rapidamente sobre a operação da sua oficina"></textarea>
+          </label>
+          <button class="button button-primary" type="submit">Registrar interesse</button>
+          <p id="leadMessageStatus" class="form-status" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+
+    <script src="site.js"></script>
+  </body>
+</html>
