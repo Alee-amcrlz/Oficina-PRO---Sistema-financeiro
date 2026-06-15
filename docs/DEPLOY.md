@@ -83,6 +83,8 @@ Para gerar valores fortes antes de preencher o painel do provedor:
 python scripts/generate_deploy_secrets.py --admin-email "admin@seudominio.com" --admin-username "admin_oficina_pro" --public-url "https://oficina-pro-staging.onrender.com"
 ```
 
+Para staging com sandbox Mercado Pago, use `--mercadopago`; o script mantém `APP_ENV=staging`, muda `BILLING_PROVIDER=mercadopago` e imprime o campo para preencher o token de teste.
+
 Para produção, use `--production`; o script muda `APP_ENV` para `production` e exige Mercado Pago como provedor de cobrança.
 
 ## Checklist de staging

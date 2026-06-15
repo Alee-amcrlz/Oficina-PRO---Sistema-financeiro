@@ -39,7 +39,7 @@ def mercadopago_headers(resource_id, request_id, timestamp, secret=SECRET):
 def main():
     resource_id = f"smoke-payment-{int(time.time())}"
     request_id = f"smoke-request-{int(time.time())}"
-    timestamp = str(int(time.time()))
+    timestamp = str(int(time.time() * 1000))
     payload = {
         "id": f"smoke-event-{resource_id}",
         "type": "payment",
@@ -63,7 +63,7 @@ def main():
 
     old_resource_id = f"smoke-payment-old-{int(time.time())}"
     old_request_id = f"smoke-request-old-{int(time.time())}"
-    old_timestamp = str(int(time.time()) - 3600)
+    old_timestamp = str((int(time.time()) - 3600) * 1000)
     old_payload = {
         "id": f"smoke-event-{old_resource_id}",
         "type": "payment",

@@ -28,6 +28,7 @@ O Oficina Pro já possui planos, assinaturas e registro de pagamentos no Painel 
 - `PUBLIC_APP_URL`
 - `MERCADOPAGO_ACCESS_TOKEN`
 - `MERCADOPAGO_WEBHOOK_SECRET`
+- `MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS`
 
 Em `staging`, `BILLING_PROVIDER=manual` é aceito para testes sem cobrança real.
 
@@ -37,6 +38,58 @@ Em `production`, o preflight e `/api/ready` exigem:
 - `MERCADOPAGO_ACCESS_TOKEN`
 - `MERCADOPAGO_WEBHOOK_SECRET`
 - `PUBLIC_APP_URL` com HTTPS
+
+## O que é necessário no Mercado Pago
+
+Para ativar recebimentos recorrentes reais, será necessário:
+
+- Conta vendedor Mercado Pago verificada.
+- Uma aplicação criada em **Suas integrações** no painel de desenvolvedor.
+- `Access Token` da aplicação para o ambiente desejado.
+- URL pública HTTPS do Oficina Pro em `PUBLIC_APP_URL`.
+- Webhook configurado no Mercado Pago apontando para `{PUBLIC_APP_URL}/api/billing/webhooks/mercadopago`.
+- Assinatura secreta do webhook configurada em `MERCADOPAGO_WEBHOOK_SECRET`.
+- `BILLING_PROVIDER=mercadopago` somente quando o ambiente for usar checkout real ou sandbox controlado.
+
+Nunca salvar `MERCADOPAGO_ACCESS_TOKEN` ou `MERCADOPAGO_WEBHOOK_SECRET` no GitHub. Esses valores devem ficar apenas nas variáveis de ambiente do provedor de nuvem.
+
+## Configuração recomendada por ambiente
+
+### Homologação sem cobrança
+
+```text
+BILLING_PROVIDER=manual
+PUBLIC_APP_URL=https://url-do-staging
+MERCADOPAGO_WEBHOOK_SECRET=segredo-com-32-ou-mais-caracteres
+MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS=600
+```
+
+Nesse modo, o sistema registra solicitações de contratação no Painel Master, mas não envia o cliente para cobrança.
+
+### Sandbox Mercado Pago
+
+```text
+BILLING_PROVIDER=mercadopago
+PUBLIC_APP_URL=https://url-do-staging
+MERCADOPAGO_ACCESS_TOKEN=token-de-teste-do-mercado-pago
+MERCADOPAGO_WEBHOOK_SECRET=segredo-do-webhook-ou-segredo-forte-equivalente
+MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS=600
+```
+
+Usar somente com dados fictícios. O cliente será direcionado para o checkout do Mercado Pago e o webhook validado poderá ativar a assinatura.
+
+### Produção
+
+```text
+APP_ENV=production
+BILLING_PROVIDER=mercadopago
+PUBLIC_APP_URL=https://app.oficinapro.com.br
+MERCADOPAGO_ACCESS_TOKEN=token-de-producao-do-mercado-pago
+MERCADOPAGO_WEBHOOK_SECRET=segredo-do-webhook-de-producao
+MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS=600
+```
+
+Produção exige PostgreSQL, HTTPS, segredos fortes, credenciais administrativas não padrão e Mercado Pago ativo.
 
 ## Contratação
 
@@ -53,6 +106,8 @@ O cliente inicia a contratação pelo painel **Minha assinatura**. A solicitaç�
 Em `manual`, usado para homologação, a solicitação fica como `manual_pending` e aparece no Painel Master para acompanhamento.
 
 Em `mercadopago`, o backend cria uma assinatura recorrente via endpoint de preapproval do Mercado Pago e retorna a URL de checkout para o cliente. Se o provedor falhar, a tentativa fica registrada como `provider_error`.
+
+O payload enviado ao Mercado Pago usa o modelo de assinatura sem plano associado e com pagamento pendente. O sistema envia `status=pending`, `external_reference`, `payer_email`, `back_url` e `auto_recurring` com frequência mensal, trimestral ou anual.
 
 ## Webhook Mercado Pago
 

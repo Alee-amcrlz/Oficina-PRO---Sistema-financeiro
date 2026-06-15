@@ -2023,6 +2023,7 @@ def mercadopago_preapproval_payload(user, plan_info):
             "transaction_amount": float(plan_info["currentPrice"]),
             "currency_id": "BRL",
         },
+        "status": "pending",
     }
 
 
@@ -2172,7 +2173,9 @@ def verify_mercadopago_signature(payload, query, headers):
         timestamp_value = int(timestamp)
     except (TypeError, ValueError):
         return False, "Assinatura Mercado Pago com timestamp inválido."
-    if abs(int(time.time()) - timestamp_value) > MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS:
+    current_timestamp = int(time.time())
+    signature_timestamp = timestamp_value / 1000 if timestamp_value > 9999999999 else timestamp_value
+    if abs(current_timestamp - signature_timestamp) > MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS:
         return False, "Assinatura Mercado Pago expirada."
     template = mercadopago_signature_template(resource_id, request_id, timestamp)
     expected_hash = hmac.new(
