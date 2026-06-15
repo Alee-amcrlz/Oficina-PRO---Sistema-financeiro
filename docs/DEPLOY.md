@@ -59,6 +59,28 @@ O sistema já possui:
 - Runner de migrações SQL pendentes com `python scripts/apply_migrations.py`.
 - Integração pública para site de divulgação listar planos e enviar leads sem acionar cobrança.
 
+## Caminho gratuito recomendado
+
+Para publicar a primeira homologação online sem custo recorrente, usar:
+
+- Banco: Neon PostgreSQL Free.
+- Aplicação: Render Free Web Service.
+- Cobrança: `BILLING_PROVIDER=manual` no primeiro staging, sem cobrança real.
+
+Arquivos de blueprint:
+
+- `render.free.yaml`: staging gratuito com banco Neon externo em `DATABASE_URL`.
+- `render.yaml`: staging pago/mais robusto com Render Postgres gerenciado.
+
+Esse caminho evita SQLite na nuvem e reduz o impacto da migração futura. Ao sair do gratuito para pago dentro do próprio Neon, o sistema continua usando PostgreSQL e normalmente basta fazer upgrade do plano. Se decidirmos trocar de provedor depois, o caminho é exportar com `pg_dump`, restaurar no novo PostgreSQL, trocar `DATABASE_URL` e rodar `scripts/verify_staging.py`.
+
+Links para criação de conta:
+
+- Neon: https://console.neon.tech/signup
+- Render: https://dashboard.render.com/register
+
+Depois de criar o banco no Neon, copie a connection string PostgreSQL e configure como `DATABASE_URL` no Render. Não envie senha de conta nem token sensível por chat; configure diretamente no painel quando possível.
+
 ## Próxima fronteira técnica
 
 O próximo passo externo é criar o staging no Render a partir de `render.yaml`, preencher os segredos e validar a URL pública com os smokes.
@@ -77,6 +99,8 @@ Esse comando junta preflight, travas de runtime, sintaxe, schema, governança de
 
 Se o Node.js não estiver no `PATH`, defina `NODE_BIN` apontando para o executável antes de rodar o release check.
 
+Para o caminho gratuito Neon + Render, use `render.free.yaml` no Render e configure `DATABASE_URL` manualmente com a connection string do Neon.
+
 Para gerar valores fortes antes de preencher o painel do provedor:
 
 ```powershell
@@ -91,11 +115,13 @@ Para produção, use `--production`; o script muda `APP_ENV` para `production` e
 
 - Configurar `APP_ENV=staging`.
 - Configurar `HOST=0.0.0.0`.
+- Configurar `DATABASE_URL` com PostgreSQL gerenciado; no caminho gratuito, usar a connection string do Neon.
 - Configurar `DEFAULT_ADMIN_EMAIL` com e-mail administrativo real.
 - Configurar `DEFAULT_ADMIN_USERNAME` com usuário administrativo exclusivo, diferente de `master`.
 - Configurar `DEFAULT_ADMIN_PASSWORD` com senha forte e exclusiva.
 - Gerar `DEFAULT_ADMIN_PASSWORD` e `MERCADOPAGO_WEBHOOK_SECRET` com `python scripts/generate_deploy_secrets.py`.
-- Para Render, usar `render.yaml` como blueprint de staging com PostgreSQL gerenciado e preencher os segredos solicitados no painel.
+- Para Render gratuito, usar `render.free.yaml` como blueprint de staging e preencher `DATABASE_URL` com Neon.
+- Para Render pago com banco gerenciado Render, usar `render.yaml`.
 - O blueprint roda `python scripts/preflight.py && python scripts/validate_migrations.py && python scripts/apply_migrations.py` antes de cada deploy.
 - Manter `autoDeployTrigger: "off"` no primeiro staging para revisar cada deploy manualmente.
 - Confirmar que `DATABASE_URL` foi preenchido automaticamente pelo banco Render Postgres.

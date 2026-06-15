@@ -1,0 +1,54 @@
+# Render Blueprint for Oficina Pro free staging.
+# Uses Render Free Web Service + external Neon PostgreSQL via DATABASE_URL.
+# Fill sync:false secrets in the Render dashboard. Do not commit real secrets.
+
+services:
+  - type: web
+    name: oficina-pro-free-staging
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: codex/oficina-pro-v1.1
+    healthCheckPath: /api/health
+    preDeployCommand: python scripts/preflight.py && python scripts/validate_migrations.py && python scripts/apply_migrations.py
+    autoDeployTrigger: "off"
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_TTL_SECONDS
+        value: 28800
+      - key: PASSWORD_HASH_ITERATIONS
+        value: 260000
+      - key: MIN_USER_PASSWORD_LENGTH
+        value: 12
+      - key: LOGIN_MAX_ATTEMPTS
+        value: 5
+      - key: LOGIN_WINDOW_SECONDS
+        value: 900
+      - key: LOGIN_LOCK_SECONDS
+        value: 900
+      - key: BILLING_PROVIDER
+        value: manual
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: MARKETING_SITE_URL
+        sync: false
+      - key: DEFAULT_ADMIN_NAME
+        value: MASTER
+      - key: DEFAULT_ADMIN_USERNAME
+        sync: false
+      - key: DEFAULT_ADMIN_EMAIL
+        sync: false
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS
+        value: 600
