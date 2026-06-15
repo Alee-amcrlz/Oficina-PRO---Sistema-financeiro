@@ -13,4 +13,4 @@ ENV PORT=4173
 
 EXPOSE 4173
 
-CMD ["python", "server.py"]
+CMD ["sh", "-c", "python scripts/preflight.py && python scripts/validate_migrations.py && python scripts/apply_migrations.py && exec python server.py"]

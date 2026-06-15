@@ -31,8 +31,9 @@ O banco gratuito é suficiente para homologação inicial. Para produção, faze
 1. Criar novo Blueprint ou Web Service conectado ao GitHub.
 2. Selecionar o repositório do Oficina Pro.
 3. Usar branch `codex/oficina-pro-v1.1`.
-4. Usar o arquivo `render.free.yaml`.
-5. Manter deploy manual no primeiro ambiente.
+4. Usar o arquivo `render.free.yaml` quando criar por Blueprint.
+5. Se criar manualmente, selecionar runtime Docker, plano Free, região Oregon e configurar as variáveis abaixo.
+6. Manter deploy manual no primeiro ambiente.
 
 ## 3. Variáveis obrigatórias no Render
 
@@ -60,13 +61,15 @@ MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS=600
 
 ## 4. Primeiro deploy
 
-O deploy executa:
+O container executa antes de abrir o servidor:
 
 ```text
 python scripts/preflight.py
 python scripts/validate_migrations.py
 python scripts/apply_migrations.py
 ```
+
+Isso garante que um serviço criado manualmente no Render também aplique as migrações no Neon antes da aplicação responder.
 
 Depois do deploy, validar:
 
