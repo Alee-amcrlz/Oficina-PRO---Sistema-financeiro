@@ -4,13 +4,6 @@ const STATUS = {
   approved: "aprovado",
   rejected: "reprovado"
 };
-const MASTER_USER = {
-  name: "MASTER",
-  email: "master@oficina.local",
-  password: "Master@123",
-  role: "admin",
-  accessLevel: "administrador"
-};
 const DEFAULT_ACCESS_LEVELS = {
   administrador: "Administrador",
   financeiro: "Financeiro",
@@ -36,16 +29,52 @@ const FEATURE_ALIASES = {
   dashboard: "dashboard_view",
   budgets: "budgets_view",
   inventory: "inventory_view",
-  billing: "billing_view"
+  billing: "billing_view",
+  platform: "platform"
+};
+const VIEW_TITLES = {
+  dashboardView: "Painel",
+  platformView: "Painel Master",
+  budgetView: "Atendimento / Orçamentos",
+  customersView: "Atendimento / Clientes e veículos",
+  serviceOrdersView: "Atendimento / Ordens de serviço",
+  billingView: "Financeiro / Fluxo de caixa",
+  accountsPayableView: "Financeiro / Contas à pagar",
+  costTableView: "Financeiro / Tabela de custos",
+  inventoryView: "Gerenciamento de Estoque / Cadastro de peças",
+  settingsView: "Configurações"
 };
 const REMEMBER_LOGIN_KEY = "oficina_remember_login";
 const UI_PREFERENCES_KEY = "oficina_ui_preferences";
+const SESSION_TOKEN_KEY = "oficina_session_token";
+const PLAN_FEATURE_BY_PERMISSION = {
+  dashboard_view: "dashboard",
+  budgets_view: "budgets",
+  budgets_manage: "budgets",
+  budgets_approve: "budgets",
+  budgets_delete: "budgets",
+  billing_view: "billing",
+  billing_edit: "billing",
+  inventory_view: "inventory",
+  inventory_manage: "inventory",
+  settings: "users"
+};
 
 let currentUser = null;
 let budgets = [];
+let customers = [];
+let vehicles = [];
+let serviceOrders = [];
 let inventoryParts = [];
 let suppliers = [];
 let payables = [];
+let platformCompanies = [];
+let platformSubscriptions = [];
+let platformPayments = [];
+let platformCheckoutRequests = [];
+let platformAudit = [];
+let planCatalog = {};
+let billingCycles = {};
 let selectedInventoryPartId = null;
 let selectedSupplierId = null;
 let users = [];
@@ -53,6 +82,8 @@ let editingUserId = null;
 let accessLevelsState = { ...DEFAULT_ACCESS_LEVELS };
 let permissionsState = structuredClone(DEFAULT_PERMISSIONS);
 let editingBudgetId = null;
+let editingCustomerId = null;
+let editingVehicleId = null;
 let selectedBudgetId = null;
 let compactBudgetList = false;
 let lastZipLookup = "";
@@ -72,34 +103,24 @@ const dateFormat = new Intl.DateTimeFormat("pt-BR");
 const $ = (selector) => document.querySelector(selector);
 
 async function api(path, options = {}) {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
   });
 
   const data = await response.json();
+  if (response.status === 401 && !["/auth/login", "/health"].includes(path)) {
+    showAuth();
+  }
   if (!response.ok) {
     throw new Error(data?.error || "Erro ao acessar o banco de dados local.");
   }
   return data;
-}
-
-async function hashPassword(password) {
-  if (!crypto.subtle) {
-    let hash = 2166136261;
-    for (const char of password) {
-      hash ^= char.charCodeAt(0);
-      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    }
-    return `fallback-${(hash >>> 0).toString(16)}`;
-  }
-
-  const bytes = new TextEncoder().encode(password);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function createUser(user) {
@@ -130,32 +151,10 @@ async function findUserByEmail(email) {
   return api(`/users/by-email?email=${encodeURIComponent(String(email).toLowerCase().trim())}`);
 }
 
-async function findUserByLogin(login) {
-  return api(`/users/by-login?login=${encodeURIComponent(String(login).toLowerCase().trim())}`);
-}
-
-async function ensureMasterUser() {
-  const existing = await findUserByEmail(MASTER_USER.email);
-  if (existing) {
-    const normalized = {
-      ...existing,
-      name: existing.name || MASTER_USER.name,
-      username: existing.username || "master",
-      role: "admin",
-      accessLevel: "administrador"
-    };
-    await updateUser(normalized);
-    return;
-  }
-
-  await createUser({
-    name: MASTER_USER.name,
-    username: "master",
-    email: MASTER_USER.email,
-    passwordHash: await hashPassword(MASTER_USER.password),
-    role: MASTER_USER.role,
-    accessLevel: MASTER_USER.accessLevel,
-    createdAt: new Date().toISOString()
+async function loginUser(login, password) {
+  return api("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ login, password })
   });
 }
 
@@ -175,6 +174,48 @@ async function updateBudget(budget) {
 
 async function deleteBudget(id) {
   return api(`/budgets/${Number(id)}`, { method: "DELETE" });
+}
+
+async function createCustomer(customer) {
+  return api("/customers", {
+    method: "POST",
+    body: JSON.stringify(customer)
+  });
+}
+
+async function updateCustomer(customer) {
+  return api(`/customers/${Number(customer.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(customer)
+  });
+}
+
+async function createVehicle(vehicle) {
+  return api("/vehicles", {
+    method: "POST",
+    body: JSON.stringify(vehicle)
+  });
+}
+
+async function updateVehicle(vehicle) {
+  return api(`/vehicles/${Number(vehicle.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(vehicle)
+  });
+}
+
+async function createServiceOrderFromBudget(budgetId) {
+  return api("/service-orders/from-budget", {
+    method: "POST",
+    body: JSON.stringify({ budgetId: Number(budgetId) })
+  });
+}
+
+async function updateServiceOrder(serviceOrder) {
+  return api(`/service-orders/${Number(serviceOrder.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(serviceOrder)
+  });
 }
 
 async function createInventoryPart(part) {
@@ -209,6 +250,58 @@ async function createPayable(payable) {
   });
 }
 
+async function createPlatformCompany(company) {
+  return api("/platform/companies", {
+    method: "POST",
+    body: JSON.stringify(company)
+  });
+}
+
+async function updatePlatformSubscription(subscription) {
+  return api(`/platform/subscriptions/${Number(subscription.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(subscription)
+  });
+}
+
+async function createPlatformPayment(payment) {
+  return api("/platform/payments", {
+    method: "POST",
+    body: JSON.stringify(payment)
+  });
+}
+
+async function createSubscriptionCheckout(checkout) {
+  return api("/subscription/checkout", {
+    method: "POST",
+    body: JSON.stringify(checkout)
+  });
+}
+
+async function loadPlatformAudit() {
+  platformAudit = await api("/platform/audit?limit=30");
+}
+
+async function loadPlanCatalog() {
+  const data = await api("/plans");
+  planCatalog = Object.fromEntries((data.plans || []).map((plan) => [plan.code, plan]));
+  billingCycles = data.billingCycles || {};
+}
+
+async function loadCurrentSubscription() {
+  const subscription = await api("/subscription/current");
+  currentUser = {
+    ...currentUser,
+    subscriptionStatus: subscription.status,
+    plan: subscription.plan,
+    currentPeriodStart: subscription.currentPeriodStart,
+    currentPeriodEnd: subscription.currentPeriodEnd,
+    trialEndsAt: subscription.trialEndsAt
+  };
+  sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
+  renderSubscriptionSummary();
+}
+
 async function loadBudgets() {
   const all = await api("/budgets");
   const visibleBudgets = canAccess("billing_view")
@@ -218,6 +311,18 @@ async function loadBudgets() {
   budgets = visibleBudgets
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   renderAll();
+}
+
+async function loadCustomers() {
+  customers = await api("/customers");
+  vehicles = await api("/vehicles");
+  renderBudgetCustomerOptions();
+  renderCustomersView();
+}
+
+async function loadServiceOrders() {
+  serviceOrders = await api("/service-orders");
+  renderServiceOrdersView();
 }
 
 async function loadInventoryParts() {
@@ -232,6 +337,18 @@ async function loadSuppliers() {
 async function loadPayables() {
   payables = await api("/payables?limit=5");
   renderLatestPayables();
+}
+
+async function loadPlatformDashboard() {
+  if (!canAccess("platform")) return;
+  [platformCompanies, platformSubscriptions, platformPayments, platformCheckoutRequests, platformAudit] = await Promise.all([
+    api("/platform/companies"),
+    api("/platform/subscriptions"),
+    api("/platform/payments"),
+    api("/platform/checkout-requests?limit=30"),
+    api("/platform/audit?limit=30")
+  ]);
+  renderPlatformDashboard();
 }
 
 async function loadSettings() {
@@ -249,26 +366,31 @@ function setMessage(element, text, isSuccess = false) {
   element.style.color = isSuccess ? "var(--success)" : "var(--danger)";
 }
 
+function setPageTitle(title = "Painel") {
+  const normalizedTitle = title || "Painel";
+  $("#pageTitle").textContent = normalizedTitle;
+  document.title = `${normalizedTitle.replace(/\s*\/\s*/g, " - ")} | Oficina Pro`;
+}
+
 function loadRememberedLogin() {
   try {
     const remembered = JSON.parse(localStorage.getItem(REMEMBER_LOGIN_KEY));
-    if (!remembered?.email || !remembered?.password) return;
+    if (!remembered?.email) return;
 
     $("#loginEmail").value = remembered.email;
-    $("#loginPassword").value = remembered.password;
     $("#rememberLogin").checked = true;
   } catch {
     localStorage.removeItem(REMEMBER_LOGIN_KEY);
   }
 }
 
-function updateRememberedLogin(email, password) {
+function updateRememberedLogin(email) {
   if (!$("#rememberLogin").checked) {
     localStorage.removeItem(REMEMBER_LOGIN_KEY);
     return;
   }
 
-  localStorage.setItem(REMEMBER_LOGIN_KEY, JSON.stringify({ email, password }));
+  localStorage.setItem(REMEMBER_LOGIN_KEY, JSON.stringify({ email }));
 }
 
 function loadUiPreferences() {
@@ -295,6 +417,7 @@ function applyUiPreferences() {
   if (sidebarButton) {
     sidebarButton.title = uiPreferences.sidebarCollapsed ? "Expandir painel" : "Recolher painel";
     sidebarButton.setAttribute("aria-label", sidebarButton.title);
+    sidebarButton.setAttribute("aria-expanded", String(!uiPreferences.sidebarCollapsed));
     sidebarButton.textContent = uiPreferences.sidebarCollapsed ? "→" : "←";
   }
 
@@ -302,6 +425,7 @@ function applyUiPreferences() {
   if (themeButton) {
     themeButton.title = uiPreferences.darkMode ? "Usar modo claro" : "Usar modo escuro";
     themeButton.setAttribute("aria-label", themeButton.title);
+    themeButton.setAttribute("aria-pressed", String(uiPreferences.darkMode));
     themeButton.textContent = uiPreferences.darkMode ? "☀" : "◐";
   }
 }
@@ -318,7 +442,7 @@ function toggleTheme() {
   saveUiPreferences();
 }
 
-function showApp() {
+async function showApp() {
   $("#authView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
   $("#userName").textContent = isMasterUser()
@@ -326,11 +450,26 @@ function showApp() {
     : currentUser.name;
   applyUiPreferences();
   startSidebarClock();
+  await loadPlanCatalog();
+  await loadCurrentSubscription();
+  await loadSettings();
   applyNavigationPermissions();
-  loadInventoryParts();
-  loadSuppliers();
-  loadPayables();
-  loadBudgets();
+  setPageTitle("Painel");
+  if (canAccess("inventory")) {
+    loadInventoryParts();
+    loadSuppliers();
+  }
+  if (canAccess("billing")) {
+    loadPayables();
+  }
+  if (canAccess("budgets")) {
+    loadBudgets();
+    loadCustomers();
+    loadServiceOrders();
+  }
+  if (canAccess("platform")) {
+    loadPlatformDashboard();
+  }
   if (canAccess("settings")) {
     loadAllUsers();
     renderPermissionMatrix();
@@ -341,8 +480,10 @@ function showApp() {
 function showAuth() {
   currentUser = null;
   sessionStorage.removeItem("oficina_user");
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
   $("#appView").classList.add("hidden");
   $("#authView").classList.remove("hidden");
+  document.title = "Entrar | Oficina Pro";
 }
 
 function formatSidebarClock(date = new Date()) {
@@ -398,16 +539,7 @@ function switchView(viewId) {
     $("#settingsSubmenu")?.classList.remove("is-open");
   }
 
-  const titles = {
-    dashboardView: "Painel",
-    budgetView: "Atendimento / Orçamentos",
-    billingView: "Financeiro / Fluxo de caixa",
-    accountsPayableView: "Financeiro / Contas à pagar",
-    costTableView: "Financeiro / Tabela de custos",
-    inventoryView: "Gerenciamento de Estoque / Cadastro de peças",
-    settingsView: "Configurações"
-  };
-  $("#pageTitle").textContent = viewId === "settingsView" ? settingsSectionTitle() : titles[viewId];
+  setPageTitle(viewId === "settingsView" ? settingsSectionTitle() : VIEW_TITLES[viewId]);
   $("#newBudgetButton").classList.toggle("hidden", viewId !== "budgetView" || !canAccess("budgets_manage"));
   $("#budgetForm").classList.toggle("hidden", viewId === "budgetView" && !canAccess("budgets_manage"));
   $("#budgetLayout")?.classList.toggle("list-only", false);
@@ -420,6 +552,18 @@ function switchView(viewId) {
       switchSettingsSection("usersSettings");
     }
   }
+
+  if (viewId === "platformView") {
+    loadPlatformDashboard();
+  }
+
+  if (viewId === "customersView") {
+    loadCustomers();
+  }
+
+  if (viewId === "serviceOrdersView") {
+    loadServiceOrders();
+  }
 }
 
 function currentAccessLevel() {
@@ -429,7 +573,28 @@ function currentAccessLevel() {
 }
 
 function isMasterUser() {
-  return currentUser?.role === "admin";
+  return Boolean(currentUser?.isPlatformAdmin);
+}
+
+function currentPlan() {
+  return currentUser?.plan || planCatalog[currentUser?.subscriptionPlan] || planCatalog.trial || {
+    code: "trial",
+    name: "Teste",
+    features: ["dashboard", "budgets"],
+    limits: { users: 1 },
+    prices: {}
+  };
+}
+
+function subscriptionAllowsWrite() {
+  if (currentUser?.isPlatformAdmin) return true;
+  return ["trial", "active"].includes(currentUser?.subscriptionStatus);
+}
+
+function planAllows(feature) {
+  if (currentUser?.isPlatformAdmin) return true;
+  const mapped = PLAN_FEATURE_BY_PERMISSION[feature] || FEATURE_ALIASES[feature] || feature;
+  return (currentPlan().features || []).includes(mapped);
 }
 
 function accessLevelsConfig() {
@@ -492,9 +657,12 @@ function savePermissionsConfig(config) {
 
 function canAccess(feature) {
   if (!currentUser) return false;
+  if (feature === "platform") return Boolean(currentUser.isPlatformAdmin);
+  if (!planAllows(feature)) return false;
   if (feature === "settings") return currentUser.role === "admin";
   if (currentUser.role === "admin") return true;
   const normalizedFeature = FEATURE_ALIASES[feature] || feature;
+  if (!planAllows(normalizedFeature)) return false;
   return permissionsConfig()[currentAccessLevel()]?.includes(normalizedFeature) || false;
 }
 
@@ -505,6 +673,10 @@ function canApproveBudget(budget) {
 
 function canDeleteBudget(budget) {
   return Boolean(budget) && canAccess("budgets_delete");
+}
+
+function canGenerateServiceOrder(budget) {
+  return Boolean(budget) && budget.status === STATUS.approved && canAccess("budgets_manage");
 }
 
 function firstAllowedView() {
@@ -607,6 +779,28 @@ function budgetAddressText(budget) {
     budget.clientState,
     budget.clientZip && `CEP ${budget.clientZip}`
   ].filter(Boolean).join(" - ") || "Não informado";
+}
+
+function serviceOrderStatusLabel(status) {
+  const labels = {
+    aberta: "aberta",
+    em_andamento: "em andamento",
+    aguardando_peca: "aguardando peça",
+    concluida: "concluída",
+    entregue: "entregue"
+  };
+  return labels[status] || status || "aberta";
+}
+
+function serviceOrderBadgeClass(status) {
+  if (status === "concluida" || status === "entregue") return "aprovado";
+  if (status === "em_andamento") return "trial";
+  if (status === "aguardando_peca") return "pendente";
+  return "neutral";
+}
+
+function serviceOrderVehicleTitle(order) {
+  return [order.vehicleBrand, order.vehicleModel].filter(Boolean).join(" ") || "Veículo não informado";
 }
 
 function formatZip(value) {
@@ -775,6 +969,8 @@ function renderAll() {
   renderMetrics();
   renderRecentBudgets();
   renderBudgetList();
+  renderCustomersView();
+  renderServiceOrdersView();
   renderInventoryPartsTable();
   renderBilling();
 }
@@ -858,6 +1054,681 @@ function renderRecentBudgets() {
   $("#recentBudgets").innerHTML = budgetRows(budgets.slice(0, 6));
 }
 
+function subscriptionLabel(status) {
+  const labels = {
+    trial: "teste",
+    active: "ativa",
+    past_due: "em atraso",
+    canceled: "cancelada"
+  };
+  return labels[status] || status || "sem status";
+}
+
+function subscriptionBadgeClass(status) {
+  if (status === "active") return "aprovado";
+  if (status === "trial") return "trial";
+  if (status === "past_due") return "pendente";
+  if (status === "canceled") return "reprovado";
+  return "neutral";
+}
+
+function formatOptionalDate(value) {
+  if (!value) return "Não informado";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Não informado";
+  return dateFormat.format(date);
+}
+
+function planFeatureLabel(feature) {
+  const labels = {
+    dashboard: "Painel",
+    budgets: "Orçamentos",
+    billing: "Financeiro",
+    inventory: "Estoque",
+    users: "Usuários",
+    advanced_reports: "Relatórios avançados",
+    priority_support: "Suporte prioritário"
+  };
+  return labels[feature] || feature;
+}
+
+function commercialPlanOptions(selectedCode) {
+  return Object.values(planCatalog)
+    .filter((plan) => !["trial", "homologacao"].includes(plan.code))
+    .map((plan) => `<option value="${escapeHtml(plan.code)}" ${plan.code === selectedCode ? "selected" : ""}>${escapeHtml(plan.name)}</option>`)
+    .join("");
+}
+
+function billingCycleOptions(selectedCycle) {
+  return Object.entries(billingCycles)
+    .map(([code, label]) => `<option value="${escapeHtml(code)}" ${code === selectedCycle ? "selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+}
+
+function renderSubscriptionSummary() {
+  const container = $("#subscriptionSummary");
+  if (!container || !currentUser || currentUser.isPlatformAdmin) {
+    if (container) container.classList.add("hidden");
+    return;
+  }
+
+  const plan = currentPlan();
+  const status = currentUser.subscriptionStatus || "trial";
+  const blocked = !subscriptionAllowsWrite();
+  const periodEnd = currentUser.currentPeriodEnd || currentUser.trialEndsAt;
+  const selectedPlan = ["trial", "homologacao"].includes(plan.code) ? "profissional" : plan.code;
+  const selectedCycle = plan.billingCycle || "monthly";
+  const features = (plan.features || [])
+    .map((feature) => `<span class="chip">${escapeHtml(planFeatureLabel(feature))}</span>`)
+    .join("");
+
+  container.classList.remove("hidden");
+  container.innerHTML = `
+    <div class="panel-head">
+      <div>
+        <h2>Minha assinatura</h2>
+        <p class="muted">${escapeHtml(plan.description || "Plano atual da oficina.")}</p>
+      </div>
+      <span class="badge ${subscriptionBadgeClass(status)}">${escapeHtml(subscriptionLabel(status))}</span>
+    </div>
+    <div class="subscription-grid">
+      <div>
+        <span>Plano</span>
+        <strong>${escapeHtml(plan.name || plan.code)}</strong>
+      </div>
+      <div>
+        <span>Ciclo</span>
+        <strong>${escapeHtml(plan.billingCycleLabel || billingCycles[plan.billingCycle] || "Mensal")}</strong>
+      </div>
+      <div>
+        <span>Valor</span>
+        <strong>${currency.format(Number(plan.currentPrice || 0))}</strong>
+      </div>
+      <div>
+        <span>Usuários</span>
+        <strong>Até ${escapeHtml(plan.limits?.users || 1)}</strong>
+      </div>
+      <div>
+        <span>Próximo marco</span>
+        <strong>${formatOptionalDate(periodEnd)}</strong>
+      </div>
+    </div>
+    <div class="chip-list">${features}</div>
+    ${blocked ? '<p class="message plan-warning">Assinatura irregular. Você pode consultar dados, mas alterações ficam bloqueadas até regularização.</p>' : ""}
+    <form id="subscriptionCheckoutForm" class="subscription-checkout">
+      <label>
+        Plano
+        <select id="subscriptionCheckoutPlan" required>${commercialPlanOptions(selectedPlan)}</select>
+      </label>
+      <label>
+        Ciclo
+        <select id="subscriptionCheckoutCycle" required>${billingCycleOptions(selectedCycle)}</select>
+      </label>
+      <button type="submit" class="primary">Contratar ou alterar</button>
+      <p id="subscriptionCheckoutMessage" class="message" aria-live="polite"></p>
+    </form>
+  `;
+}
+
+function renderPlatformDashboard() {
+  if (!canAccess("platform")) return;
+
+  const active = platformCompanies.filter((company) => company.subscriptionStatus === "active");
+  const trial = platformCompanies.filter((company) => company.subscriptionStatus === "trial");
+  const alerts = platformCompanies.filter((company) => ["past_due", "canceled"].includes(company.subscriptionStatus));
+  const approvedBudgets = platformCompanies.reduce((sum, company) => sum + Number(company.approvedBudgetCount || 0), 0);
+
+  $("#platformCompanyCount").textContent = platformCompanies.length;
+  $("#platformActiveCount").textContent = active.length;
+  $("#platformTrialCount").textContent = trial.length;
+  $("#platformAlertCount").textContent = alerts.length;
+  $("#platformApprovedBudgetCount").textContent = approvedBudgets;
+  renderPlatformActionOptions();
+  renderPlatformCompaniesTable();
+  renderPlatformPaymentsTable();
+  renderPlatformCheckoutRequestsTable();
+  renderPlatformAuditTable();
+}
+
+function dateInputValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function selectedPlatformCompany(selectId) {
+  const id = Number($(`#${selectId}`)?.value || 0);
+  return platformCompanies.find((company) => Number(company.id) === id) || null;
+}
+
+function renderPlatformActionOptions() {
+  const options = platformCompanies.map((company) => `
+    <option value="${company.id}">${escapeHtml(company.name)} - ${escapeHtml(subscriptionLabel(company.subscriptionStatus))}</option>
+  `).join("");
+
+  ["platformSubscriptionCompany", "platformPaymentCompany"].forEach((selectId) => {
+    const select = $(`#${selectId}`);
+    if (!select) return;
+    const currentValue = select.value;
+    select.innerHTML = options || '<option value="">Nenhuma oficina</option>';
+    if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
+      select.value = currentValue;
+    }
+  });
+
+  fillPlatformSubscriptionForm(selectedPlatformCompany("platformSubscriptionCompany") || platformCompanies[0]);
+}
+
+function fillPlatformSubscriptionForm(company) {
+  if (!company) return;
+  $("#platformSubscriptionCompany").value = company.id;
+  $("#platformSubscriptionPlan").value = company.plan || "trial";
+  $("#platformSubscriptionBillingCycle").value = company.billingCycle || "monthly";
+  $("#platformSubscriptionStatus").value = company.subscriptionStatus || "trial";
+  $("#platformPeriodStart").value = dateInputValue(company.currentPeriodStart);
+  $("#platformPeriodEnd").value = dateInputValue(company.currentPeriodEnd);
+  $("#platformTrialEndsAt").value = dateInputValue(company.trialEndsAt);
+}
+
+function filteredPlatformCompanies() {
+  const status = $("#platformStatusFilter")?.value || "todos";
+  const plan = $("#platformPlanFilter")?.value || "todos";
+  const search = ($("#platformSearchFilter")?.value || "").trim().toLowerCase();
+
+  return platformCompanies.filter((company) => {
+    const matchesStatus = status === "todos" || company.subscriptionStatus === status;
+    const matchesPlan = plan === "todos" || company.plan === plan;
+    const searchable = [
+      company.name,
+      company.document,
+      company.phone,
+      company.id
+    ].map((value) => String(value || "").toLowerCase()).join(" ");
+    const matchesSearch = !search || searchable.includes(search);
+    return matchesStatus && matchesPlan && matchesSearch;
+  });
+}
+
+function renderPlatformCompaniesTable() {
+  const container = $("#platformCompaniesTable");
+  if (!container) return;
+
+  if (!platformCompanies.length) {
+    container.innerHTML = '<p class="empty">Nenhuma oficina cadastrada.</p>';
+    return;
+  }
+
+  const filteredCompanies = filteredPlatformCompanies();
+  const filteredCount = $("#platformFilteredCount");
+  if (filteredCount) {
+    filteredCount.textContent = `${filteredCompanies.length} de ${platformCompanies.length} oficinas`;
+  }
+
+  if (!filteredCompanies.length) {
+    container.innerHTML = '<p class="empty">Nenhuma oficina encontrada com os filtros atuais.</p>';
+    return;
+  }
+
+  const rows = filteredCompanies.map((company) => `
+    <tr>
+      <td>
+        <strong>${escapeHtml(company.name)}</strong><br>
+        <span class="muted">ID ${escapeHtml(company.id)}</span>
+      </td>
+      <td>${escapeHtml(company.plan || "Não definido")}</td>
+      <td>${escapeHtml(billingCycles[company.billingCycle] || "Mensal")}</td>
+      <td><span class="badge ${subscriptionBadgeClass(company.subscriptionStatus)}">${escapeHtml(subscriptionLabel(company.subscriptionStatus))}</span></td>
+      <td>${escapeHtml(company.userCount || 0)}</td>
+      <td>${escapeHtml(company.budgetCount || 0)}</td>
+      <td>${escapeHtml(company.approvedBudgetCount || 0)}</td>
+      <td>${formatOptionalDate(company.currentPeriodEnd || company.trialEndsAt)}</td>
+      <td>${formatOptionalDate(company.lastPaymentAt)}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Oficina</th>
+          <th>Plano</th>
+          <th>Ciclo</th>
+          <th>Status</th>
+          <th>Usuários</th>
+          <th>Orçamentos</th>
+          <th>Aprovados</th>
+          <th>Próximo marco</th>
+          <th>Último pagamento</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function auditActionLabel(action) {
+  const labels = {
+    "company.create": "Oficina criada",
+    "subscription.create": "Assinatura criada",
+    "subscription.update": "Assinatura atualizada",
+    "payment.create": "Pagamento registrado",
+    "billing.checkout.requested": "Contratação iniciada",
+    "billing.webhook.received": "Webhook recebido",
+    "billing.reconciliation.processed": "Conciliação processada"
+  };
+  return labels[action] || action || "Ação";
+}
+
+function auditDetailsText(details = {}) {
+  if (details.after) {
+    const before = details.before || {};
+    return `${before.plan || "sem plano"} / ${before.status || "sem status"} -> ${details.after.plan || "sem plano"} / ${details.after.status || "sem status"}`;
+  }
+  if (details.amount !== undefined) {
+    return `${currency.format(Number(details.amount || 0))} - ${details.status || "sem status"}`;
+  }
+  if (details.companyName) {
+    return `${details.companyName} - ${details.plan || "sem plano"} / ${details.status || "sem status"}`;
+  }
+  return "Sem detalhes";
+}
+
+function renderPlatformAuditTable() {
+  const container = $("#platformAuditTable");
+  if (!container) return;
+
+  if (!platformAudit.length) {
+    container.innerHTML = '<p class="empty">Nenhuma ação master registrada ainda.</p>';
+    return;
+  }
+
+  const rows = platformAudit.map((item) => `
+    <tr>
+      <td>${formatOptionalDate(item.createdAt)}</td>
+      <td>${escapeHtml(auditActionLabel(item.action))}</td>
+      <td>${escapeHtml(item.targetCompanyName || "Plataforma")}</td>
+      <td>${escapeHtml(item.actorEmail || "Não informado")}</td>
+      <td>${escapeHtml(auditDetailsText(item.details))}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Ação</th>
+          <th>Oficina</th>
+          <th>Operador</th>
+          <th>Detalhes</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderPlatformPaymentsTable() {
+  const container = $("#platformPaymentsTable");
+  if (!container) return;
+
+  if (!platformPayments.length) {
+    container.innerHTML = '<p class="empty">Nenhum pagamento registrado ainda.</p>';
+    return;
+  }
+
+  const rows = platformPayments.map((payment) => `
+    <tr>
+      <td>${escapeHtml(payment.companyName || "Empresa")}</td>
+      <td>${escapeHtml(payment.subscriptionPlan || "Não definido")}</td>
+      <td>${currency.format(Number(payment.amount || 0))}</td>
+      <td><span class="badge ${subscriptionBadgeClass(payment.status)}">${escapeHtml(payment.status || "pending")}</span></td>
+      <td>${formatOptionalDate(payment.paidAt)}</td>
+      <td>${escapeHtml(payment.provider || "Manual")}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Oficina</th>
+          <th>Plano</th>
+          <th>Valor</th>
+          <th>Status</th>
+          <th>Pago em</th>
+          <th>Provedor</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function checkoutStatusLabel(status) {
+  const labels = {
+    manual_pending: "Manual pendente",
+    provider_pending: "Aguardando provedor",
+    provider_error: "Erro no provedor",
+    completed: "Concluída",
+    canceled: "Cancelada"
+  };
+  return labels[status] || status || "Criada";
+}
+
+function renderPlatformCheckoutRequestsTable() {
+  const container = $("#platformCheckoutRequestsTable");
+  if (!container) return;
+
+  if (!platformCheckoutRequests.length) {
+    container.innerHTML = '<p class="empty">Nenhuma contratação iniciada ainda.</p>';
+    return;
+  }
+
+  const rows = platformCheckoutRequests.map((item) => `
+    <tr>
+      <td>
+        <strong>${escapeHtml(item.companyName || "Empresa")}</strong><br>
+        <span class="muted">ID ${escapeHtml(item.id)}</span>
+      </td>
+      <td>${escapeHtml(item.plan || "Não definido")}</td>
+      <td>${escapeHtml(billingCycles[item.billingCycle] || item.billingCycle || "Mensal")}</td>
+      <td>${currency.format(Number(item.amount || 0))}</td>
+      <td><span class="badge ${subscriptionBadgeClass(item.status)}">${escapeHtml(checkoutStatusLabel(item.status))}</span></td>
+      <td>${escapeHtml(item.provider || "manual")}</td>
+      <td>${formatOptionalDate(item.createdAt)}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Oficina</th>
+          <th>Plano</th>
+          <th>Ciclo</th>
+          <th>Valor</th>
+          <th>Status</th>
+          <th>Provedor</th>
+          <th>Criada em</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function clearPlatformCompanyForm() {
+  $("#platformCompanyForm")?.reset();
+  setMessage($("#platformCompanyMessage"), "");
+}
+
+function renderCustomerOptions() {
+  const select = $("#vehicleCustomer");
+  if (!select) return;
+  const currentValue = select.value;
+  select.innerHTML = customers.map((customer) => `
+    <option value="${customer.id}">${escapeHtml(customer.name)}${customer.phone ? ` - ${escapeHtml(customer.phone)}` : ""}</option>
+  `).join("") || '<option value="">Cadastre um cliente primeiro</option>';
+  if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+function renderBudgetCustomerOptions() {
+  const customerSelect = $("#budgetCustomerSelect");
+  const vehicleSelect = $("#budgetVehicleSelect");
+  if (!customerSelect || !vehicleSelect) return;
+
+  const currentCustomer = customerSelect.value;
+  customerSelect.innerHTML = '<option value="">Novo cliente ou busca manual</option>' + customers.map((customer) => `
+    <option value="${customer.id}">${escapeHtml(customer.name)}${customer.phone ? ` - ${escapeHtml(customer.phone)}` : ""}</option>
+  `).join("");
+  if (currentCustomer && Array.from(customerSelect.options).some((option) => option.value === currentCustomer)) {
+    customerSelect.value = currentCustomer;
+  }
+
+  renderBudgetVehicleOptions();
+}
+
+function renderBudgetVehicleOptions(customerId = $("#budgetCustomerSelect")?.value || "") {
+  const vehicleSelect = $("#budgetVehicleSelect");
+  if (!vehicleSelect) return;
+  const currentVehicle = vehicleSelect.value;
+  const scopedVehicles = customerId
+    ? vehicles.filter((vehicle) => Number(vehicle.customerId) === Number(customerId))
+    : vehicles;
+
+  vehicleSelect.innerHTML = '<option value="">Novo veículo ou busca manual</option>' + scopedVehicles.map((vehicle) => `
+    <option value="${vehicle.id}">${escapeHtml(vehicle.plate || "Sem placa")} - ${escapeHtml([vehicle.brand, vehicle.model].filter(Boolean).join(" ") || "Veículo")}</option>
+  `).join("");
+  if (currentVehicle && Array.from(vehicleSelect.options).some((option) => option.value === currentVehicle)) {
+    vehicleSelect.value = currentVehicle;
+  }
+}
+
+function fillBudgetCustomerFields(customer) {
+  if (!customer) return;
+  $("#clientName").value = customer.name || "";
+  $("#clientEmail").value = customer.email || "";
+  $("#clientPhone").value = customer.phone || "";
+  $("#clientZip").value = customer.zip || "";
+  $("#clientStreet").value = customer.street || "";
+  $("#clientNumber").value = customer.number || "";
+  $("#clientDistrict").value = customer.district || "";
+  $("#clientState").value = customer.state || "";
+}
+
+function fillBudgetVehicleFields(vehicle) {
+  if (!vehicle) return;
+  $("#vehicleBrand").value = vehicle.brand || "";
+  $("#vehicleModel").value = vehicle.model || "";
+  $("#vehicleYear").value = vehicle.year || "";
+  $("#plate").value = vehicle.plate || "";
+  $("#vehicleColor").value = vehicle.color || "";
+  $("#vehicleKm").value = vehicle.km || "";
+  if (vehicle.customerId) {
+    $("#budgetCustomerSelect").value = vehicle.customerId;
+    renderBudgetVehicleOptions(vehicle.customerId);
+    $("#budgetVehicleSelect").value = vehicle.id;
+    const customer = customers.find((item) => Number(item.id) === Number(vehicle.customerId));
+    fillBudgetCustomerFields(customer);
+  }
+}
+
+function findCustomerByContact() {
+  const email = $("#clientEmail").value.toLowerCase().trim();
+  const phone = $("#clientPhone").value.trim();
+  return customers.find((customer) => (
+    (email && String(customer.email || "").toLowerCase() === email)
+    || (phone && String(customer.phone || "") === phone)
+  ));
+}
+
+function findVehicleByPlateInput() {
+  const plate = $("#plate").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return vehicles.find((vehicle) => String(vehicle.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") === plate);
+}
+
+function renderCustomersTable() {
+  const container = $("#customersTable");
+  if (!container) return;
+  if (!customers.length) {
+    container.innerHTML = '<p class="empty">Nenhum cliente cadastrado ainda.</p>';
+    return;
+  }
+
+  const rows = customers.map((customer) => `
+    <tr>
+      <td><button class="table-link" data-action="edit-customer" data-id="${customer.id}">${escapeHtml(customer.name)}</button></td>
+      <td>${escapeHtml(customer.phone || "Não informado")}</td>
+      <td>${escapeHtml(customer.email || "Não informado")}</td>
+      <td>${escapeHtml(customer.vehicleCount || 0)}</td>
+      <td>${escapeHtml(customer.serviceOrderCount || 0)}</td>
+      <td>${escapeHtml([customer.street, customer.number, customer.district, customer.state].filter(Boolean).join(", ") || "Não informado")}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Telefone</th>
+          <th>E-mail</th>
+          <th>Veículos</th>
+          <th>OS</th>
+          <th>Endereço</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderVehiclesTable() {
+  const container = $("#vehiclesTable");
+  if (!container) return;
+  if (!vehicles.length) {
+    container.innerHTML = '<p class="empty">Nenhum veículo cadastrado ainda.</p>';
+    return;
+  }
+
+  const rows = vehicles.map((vehicle) => `
+    <tr>
+      <td><button class="table-link" data-action="edit-vehicle" data-id="${vehicle.id}">${escapeHtml(vehicle.plate || "Sem placa")}</button></td>
+      <td>${escapeHtml([vehicle.brand, vehicle.model].filter(Boolean).join(" ") || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.year || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.color || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.km || "Não informado")}</td>
+      <td>${escapeHtml(vehicle.customerName || "Não informado")}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Placa</th>
+          <th>Veículo</th>
+          <th>Ano</th>
+          <th>Cor</th>
+          <th>KM</th>
+          <th>Cliente</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderCustomersView() {
+  renderCustomerOptions();
+  renderBudgetCustomerOptions();
+  renderCustomersTable();
+  renderVehiclesTable();
+}
+
+function clearCustomerForm() {
+  editingCustomerId = null;
+  $("#customerForm")?.reset();
+  $("#customerFormTitle").textContent = "Cadastrar cliente";
+  setMessage($("#customerMessage"), "");
+}
+
+function fillCustomerForm(customer) {
+  editingCustomerId = customer.id;
+  $("#customerFormTitle").textContent = "Editar cliente";
+  $("#customerName").value = customer.name || "";
+  $("#customerPhone").value = customer.phone || "";
+  $("#customerEmail").value = customer.email || "";
+  $("#customerZip").value = customer.zip || "";
+  $("#customerStreet").value = customer.street || "";
+  $("#customerNumber").value = customer.number || "";
+  $("#customerDistrict").value = customer.district || "";
+  $("#customerState").value = customer.state || "";
+  $("#customerNotes").value = customer.notes || "";
+  setMessage($("#customerMessage"), "");
+}
+
+function clearVehicleForm() {
+  editingVehicleId = null;
+  $("#vehicleForm")?.reset();
+  $("#vehicleFormTitle").textContent = "Cadastrar veículo";
+  renderCustomerOptions();
+  setMessage($("#vehicleMessage"), "");
+}
+
+function fillVehicleForm(vehicle) {
+  editingVehicleId = vehicle.id;
+  $("#vehicleFormTitle").textContent = "Editar veículo";
+  renderCustomerOptions();
+  $("#vehicleCustomer").value = vehicle.customerId || "";
+  $("#customerVehicleBrand").value = vehicle.brand || "";
+  $("#customerVehicleModel").value = vehicle.model || "";
+  $("#customerVehicleYear").value = vehicle.year || "";
+  $("#customerVehiclePlate").value = vehicle.plate || "";
+  $("#customerVehicleColor").value = vehicle.color || "";
+  $("#customerVehicleKm").value = vehicle.km || "";
+  $("#vehicleNotes").value = vehicle.notes || "";
+  setMessage($("#vehicleMessage"), "");
+}
+
+function renderServiceOrdersView() {
+  const container = $("#serviceOrdersTable");
+  if (!container) return;
+  const filter = $("#serviceOrderStatusFilter")?.value || "todos";
+  const filtered = filter === "todos"
+    ? serviceOrders
+    : serviceOrders.filter((order) => order.status === filter);
+
+  if (!filtered.length) {
+    container.innerHTML = '<p class="empty">Nenhuma ordem de serviço para este filtro.</p>';
+    return;
+  }
+
+  const statusOptions = ["aberta", "em_andamento", "aguardando_peca", "concluida", "entregue"];
+  const rows = filtered.map((order) => `
+    <tr>
+      <td><strong>${escapeHtml(order.number)}</strong><br><span class="muted">Orçamento ${escapeHtml(order.budgetId || "manual")}</span></td>
+      <td>${escapeHtml(order.customerName || "Cliente")}</td>
+      <td>${escapeHtml(serviceOrderVehicleTitle(order))}<br><span class="muted">${escapeHtml(order.vehiclePlate || "")}</span></td>
+      <td>
+        <span class="badge ${serviceOrderBadgeClass(order.status)}">${escapeHtml(serviceOrderStatusLabel(order.status))}</span>
+      </td>
+      <td>${escapeHtml(order.priority || "normal")}</td>
+      <td>${formatOptionalDate(order.entryDate)}</td>
+      <td>${formatOptionalDate(order.expectedDeliveryDate)}</td>
+      <td>${currency.format(Number(order.totalAmount || 0))}</td>
+      <td>
+        <select class="compact-select" data-action="change-service-order-status" data-id="${order.id}">
+          ${statusOptions.map((status) => `<option value="${status}" ${order.status === status ? "selected" : ""}>${serviceOrderStatusLabel(status)}</option>`).join("")}
+        </select>
+      </td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>OS</th>
+          <th>Cliente</th>
+          <th>Veículo</th>
+          <th>Status</th>
+          <th>Prioridade</th>
+          <th>Entrada</th>
+          <th>Previsão</th>
+          <th>Total</th>
+          <th>Atualizar</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
 function renderBudgetList() {
   const filter = $("#statusFilter").value;
   const search = ($("#budgetSearch")?.value || "").toLowerCase().trim();
@@ -900,6 +1771,7 @@ function renderBudgetList() {
               <button class="action success" data-action="approve" data-id="${budget.id}">Aprovar</button>
               <button class="action danger" data-action="reject" data-id="${budget.id}">Reprovar</button>
             ` : ""}
+            ${canGenerateServiceOrder(budget) ? `<button class="action success" data-action="create-os" data-id="${budget.id}">Gerar OS</button>` : ""}
             ${canDeleteBudget(budget) ? `<button class="action danger" data-action="delete" data-id="${budget.id}">Excluir</button>` : ""}
           </div>
         </td>
@@ -952,6 +1824,7 @@ function renderBudgetList() {
           <button class="action success" data-action="approve" data-id="${budget.id}">Aprovar</button>
           <button class="action danger" data-action="reject" data-id="${budget.id}">Reprovar</button>
         ` : ""}
+        ${canGenerateServiceOrder(budget) ? `<button class="action success" data-action="create-os" data-id="${budget.id}">Gerar OS</button>` : ""}
         ${canDeleteBudget(budget) ? `<button class="action danger" data-action="delete" data-id="${budget.id}">Excluir</button>` : ""}
       </div>
     </article>
@@ -1300,7 +2173,7 @@ function switchSettingsSection(sectionId) {
   document.querySelectorAll(".side-submenu-button").forEach((button) => button.classList.remove("active"));
   $(`#${sectionId}`).classList.remove("hidden");
   document.querySelector(`[data-settings-section="${sectionId}"]`).classList.add("active");
-  $("#pageTitle").textContent = settingsSectionTitle(sectionId);
+  setPageTitle(settingsSectionTitle(sectionId));
   $("#settingsSubmenu")?.classList.remove("is-open");
 }
 
@@ -1371,14 +2244,15 @@ async function changeUserPassword(id) {
   const newPassword = prompt(`Digite a nova senha para ${user.name}:`);
   if (!newPassword) return;
 
-  if (newPassword.length < 6) {
-    alert("A senha precisa ter pelo menos 6 caracteres.");
+  if (newPassword.length < 12) {
+    alert("A senha precisa ter pelo menos 12 caracteres.");
     return;
   }
 
-  user.passwordHash = await hashPassword(newPassword);
+  user.password = newPassword;
   user.updatedAt = new Date().toISOString();
   await updateUser(user);
+  delete user.password;
   await loadAllUsers();
 }
 
@@ -1576,6 +2450,17 @@ async function removeBudget(id) {
   await deleteBudget(budget.id);
   await loadBudgets();
   closeBudgetModal();
+}
+
+async function generateServiceOrderFromBudget(budget) {
+  if (!canGenerateServiceOrder(budget)) return;
+  const order = await createServiceOrderFromBudget(budget.id);
+  await Promise.all([loadCustomers(), loadServiceOrders()]);
+  closeBudgetModal();
+  switchView("serviceOrdersView");
+  markParentMenu("budgets");
+  setPageTitle("Atendimento / Ordens de serviço");
+  alert(`Ordem de serviço ${order.number} gerada para ${budget.clientName}.`);
 }
 
 function escapeHtml(value) {
@@ -1805,6 +2690,7 @@ function setFormMode(budget = null) {
 
 function clearBudgetForm() {
   $("#budgetForm").reset();
+  renderBudgetCustomerOptions();
   setAddressLookupState("");
   lastZipLookup = "";
   resetBudgetItems();
@@ -1812,6 +2698,8 @@ function clearBudgetForm() {
 }
 
 function loadBudgetIntoForm(budget) {
+  $("#budgetCustomerSelect").value = "";
+  $("#budgetVehicleSelect").value = "";
   $("#clientName").value = budget.clientName || "";
   $("#clientEmail").value = budget.clientEmail || "";
   $("#clientPhone").value = budget.clientPhone || "";
@@ -1857,6 +2745,7 @@ function openBudgetModal(budget) {
   $("#modalEditButton").classList.toggle("hidden", !(canAccess("budgets_manage") || canAccess("billing_edit")));
   $("#modalApproveButton").classList.toggle("hidden", !canApproveBudget(budget));
   $("#modalRejectButton").classList.toggle("hidden", !canApproveBudget(budget));
+  $("#modalCreateOsButton").classList.toggle("hidden", !canGenerateServiceOrder(budget));
   $("#modalDeleteButton").classList.toggle("hidden", !canDeleteBudget(budget));
   $("#budgetModal").classList.remove("hidden");
 }
@@ -1903,7 +2792,7 @@ function openBudgetSection(section, sourceElement = null) {
     pendente: "Orçamentos pendentes"
   };
 
-  $("#pageTitle").textContent = labels[section] || labels.new;
+  setPageTitle(labels[section] || labels.new);
   $("#budgetListTitle").textContent = listTitles[section] || listTitles.new;
   const showCreateForm = isNew && canAccess("budgets_manage");
   $("#statusFilter").value = isNew ? "todos" : section;
@@ -1916,6 +2805,12 @@ function openBudgetSection(section, sourceElement = null) {
   $("#budgetLayout").classList.toggle("list-only", !showCreateForm);
   $("#budgetLayout").classList.toggle("form-only", showCreateForm);
   renderBudgetList();
+  suppressClickedSubmenu(sourceElement);
+}
+
+function openOperationsView(viewId, sourceElement = null) {
+  switchView(viewId);
+  markParentMenu("budgets");
   suppressClickedSubmenu(sourceElement);
 }
 
@@ -1933,7 +2828,7 @@ function openFinanceSection(section, sourceElement = null) {
 function openInventorySection(sourceElement = null) {
   switchView("inventoryView");
   markParentMenu("inventory");
-  $("#pageTitle").textContent = "Gerenciamento de Estoque / Cadastro de peças";
+  setPageTitle("Gerenciamento de Estoque / Cadastro de peças");
   $("#partCreateForm").classList.toggle("hidden", !canAccess("inventory_manage"));
   renderInventoryPartsTable();
   suppressClickedSubmenu(sourceElement);
@@ -1963,7 +2858,7 @@ function bindEvents() {
     const user = {
       name: $("#registerName").value.trim(),
       email,
-      passwordHash: await hashPassword($("#registerPassword").value),
+      password: $("#registerPassword").value,
       role: "user",
       accessLevel: "analista",
       createdAt: new Date().toISOString()
@@ -1982,33 +2877,160 @@ function bindEvents() {
     event.preventDefault();
     const login = $("#loginEmail").value.toLowerCase().trim();
     const password = $("#loginPassword").value;
-    const user = await findUserByLogin(login);
-    const passwordHash = await hashPassword(password);
-
-  if (!user || user.passwordHash !== passwordHash) {
-      setMessage($("#loginMessage"), "Usuário, e-mail ou senha inválidos.");
+    let result = null;
+    try {
+      result = await loginUser(login, password);
+    } catch (error) {
+      setMessage($("#loginMessage"), error.message);
       return;
     }
 
-    if (user.blocked) {
-      setMessage($("#loginMessage"), "Este usuário está bloqueado. Procure o administrador.");
-      return;
-    }
-
+    const user = result.user;
+    sessionStorage.setItem(SESSION_TOKEN_KEY, result.token);
     currentUser = {
       id: user.id,
       name: user.name,
       email: user.email,
       phone: user.phone || "",
       role: user.role || "user",
-      accessLevel: user.accessLevel || (user.role === "admin" ? "administrador" : "analista")
+      accessLevel: user.accessLevel || (user.role === "admin" ? "administrador" : "analista"),
+      isPlatformAdmin: Boolean(user.isPlatformAdmin)
     };
-    updateRememberedLogin(login, password);
+    updateRememberedLogin(login);
     sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
-    showApp();
+    await showApp();
   });
 
-  $("#logoutButton").addEventListener("click", showAuth);
+  $("#logoutButton").addEventListener("click", async () => {
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch {
+      // Mesmo se o servidor já tiver descartado a sessão, a saída local deve continuar.
+    }
+    showAuth();
+  });
+
+  $("#refreshPlatformButton")?.addEventListener("click", loadPlatformDashboard);
+  $("#subscriptionSummary")?.addEventListener("submit", async (event) => {
+    if (event.target.id !== "subscriptionCheckoutForm") return;
+    event.preventDefault();
+    const message = $("#subscriptionCheckoutMessage");
+    try {
+      const result = await createSubscriptionCheckout({
+        plan: $("#subscriptionCheckoutPlan").value,
+        billingCycle: $("#subscriptionCheckoutCycle").value
+      });
+      const checkout = result.checkout || {};
+      const targetUrl = checkout.initPoint || checkout.sandboxInitPoint;
+      if (targetUrl) {
+        setMessage(message, "Checkout criado. Abrindo pagamento em nova aba.", true);
+        window.open(targetUrl, "_blank", "noopener");
+      } else {
+        setMessage(message, "Solicitação registrada. Nossa equipe conclui a cobrança na homologação.", true);
+      }
+      if (canAccess("platform")) await loadPlatformDashboard();
+    } catch (error) {
+      setMessage(message, error.message);
+    }
+  });
+  $("#clearPlatformCompanyFormButton")?.addEventListener("click", clearPlatformCompanyForm);
+  ["platformStatusFilter", "platformPlanFilter", "platformSearchFilter"].forEach((id) => {
+    $(`#${id}`)?.addEventListener("input", renderPlatformCompaniesTable);
+    $(`#${id}`)?.addEventListener("change", renderPlatformCompaniesTable);
+  });
+  $("#platformSubscriptionCompany")?.addEventListener("change", (event) => {
+    const company = platformCompanies.find((item) => Number(item.id) === Number(event.target.value));
+    fillPlatformSubscriptionForm(company);
+  });
+  $("#platformSubscriptionForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("platform")) return;
+
+    const company = selectedPlatformCompany("platformSubscriptionCompany");
+    if (!company?.subscriptionId) {
+      setMessage($("#platformSubscriptionMessage"), "Selecione uma oficina com assinatura.");
+      return;
+    }
+
+    try {
+      await updatePlatformSubscription({
+        id: company.subscriptionId,
+        plan: $("#platformSubscriptionPlan").value,
+        billingCycle: $("#platformSubscriptionBillingCycle").value,
+        status: $("#platformSubscriptionStatus").value,
+        currentPeriodStart: $("#platformPeriodStart").value,
+        currentPeriodEnd: $("#platformPeriodEnd").value,
+        trialEndsAt: $("#platformTrialEndsAt").value,
+        updatedAt: new Date().toISOString()
+      });
+      setMessage($("#platformSubscriptionMessage"), "Assinatura atualizada com sucesso.", true);
+      await loadPlatformDashboard();
+    } catch (error) {
+      setMessage($("#platformSubscriptionMessage"), error.message);
+    }
+  });
+  $("#platformPaymentForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("platform")) return;
+
+    const company = selectedPlatformCompany("platformPaymentCompany");
+    if (!company?.id) {
+      setMessage($("#platformPaymentMessage"), "Selecione uma oficina.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    try {
+      await createPlatformPayment({
+        companyId: company.id,
+        subscriptionId: company.subscriptionId || null,
+        provider: $("#platformPaymentProvider").value.trim() || "manual",
+        amount: Number($("#platformPaymentAmount").value || 0),
+        status: $("#platformPaymentStatus").value,
+        paidAt: $("#platformPaymentPaidAt").value,
+        createdAt: now,
+        updatedAt: now
+      });
+      $("#platformPaymentForm").reset();
+      $("#platformPaymentProvider").value = "manual";
+      setMessage($("#platformPaymentMessage"), "Pagamento registrado com sucesso.", true);
+      await loadPlatformDashboard();
+    } catch (error) {
+      setMessage($("#platformPaymentMessage"), error.message);
+    }
+  });
+  $("#platformCompanyForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("platform")) return;
+
+    const payload = {
+      companyName: $("#platformCompanyName").value.trim(),
+      document: $("#platformCompanyDocument").value.trim(),
+      phone: $("#platformCompanyPhone").value.trim(),
+      plan: $("#platformCompanyPlan").value,
+      billingCycle: $("#platformCompanyBillingCycle").value,
+      status: $("#platformCompanyStatus").value,
+      ownerName: $("#platformOwnerName").value.trim(),
+      ownerEmail: $("#platformOwnerEmail").value.toLowerCase().trim(),
+      ownerUsername: $("#platformOwnerUsername").value.trim().toLowerCase(),
+      ownerPhone: $("#platformOwnerPhone").value.trim(),
+      ownerPassword: $("#platformOwnerPassword").value
+    };
+
+    if (payload.ownerPassword.length < 12) {
+      setMessage($("#platformCompanyMessage"), "A senha inicial do dono precisa ter pelo menos 12 caracteres.");
+      return;
+    }
+
+    try {
+      await createPlatformCompany(payload);
+      clearPlatformCompanyForm();
+      setMessage($("#platformCompanyMessage"), "Oficina cadastrada com sucesso.", true);
+      await loadPlatformDashboard();
+    } catch (error) {
+      setMessage($("#platformCompanyMessage"), error.message);
+    }
+  });
 
   document.querySelectorAll(".nav-button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2034,10 +3056,102 @@ function bindEvents() {
   $("#cancelEditButton").addEventListener("click", clearBudgetForm);
   $("#statusFilter").addEventListener("change", renderBudgetList);
   $("#budgetSearch").addEventListener("input", renderBudgetList);
+  $("#budgetCustomerSelect")?.addEventListener("change", (event) => {
+    const customerId = event.target.value;
+    const customer = customers.find((item) => Number(item.id) === Number(customerId));
+    fillBudgetCustomerFields(customer);
+    $("#budgetVehicleSelect").value = "";
+    renderBudgetVehicleOptions(customerId);
+  });
+  $("#budgetVehicleSelect")?.addEventListener("change", (event) => {
+    const vehicle = vehicles.find((item) => Number(item.id) === Number(event.target.value));
+    fillBudgetVehicleFields(vehicle);
+  });
+  $("#serviceOrderStatusFilter")?.addEventListener("change", renderServiceOrdersView);
+  $("#clearCustomerFormButton")?.addEventListener("click", clearCustomerForm);
+  $("#clearVehicleFormButton")?.addEventListener("click", clearVehicleForm);
+  $("#customerForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("budgets_manage")) return;
+    const payload = {
+      id: editingCustomerId,
+      name: $("#customerName").value.trim(),
+      phone: $("#customerPhone").value.trim(),
+      email: $("#customerEmail").value.toLowerCase().trim(),
+      zip: $("#customerZip").value.trim(),
+      street: $("#customerStreet").value.trim(),
+      number: $("#customerNumber").value.trim(),
+      district: $("#customerDistrict").value.trim(),
+      state: $("#customerState").value.toUpperCase().trim(),
+      notes: $("#customerNotes").value.trim()
+    };
+    try {
+      editingCustomerId ? await updateCustomer(payload) : await createCustomer(payload);
+      clearCustomerForm();
+      setMessage($("#customerMessage"), "Cliente salvo com sucesso.", true);
+      await loadCustomers();
+    } catch (error) {
+      setMessage($("#customerMessage"), error.message);
+    }
+  });
+  $("#vehicleForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!canAccess("budgets_manage")) return;
+    const payload = {
+      id: editingVehicleId,
+      customerId: Number($("#vehicleCustomer").value || 0),
+      brand: $("#customerVehicleBrand").value.trim(),
+      model: $("#customerVehicleModel").value.trim(),
+      year: $("#customerVehicleYear").value.trim(),
+      plate: $("#customerVehiclePlate").value.toUpperCase().trim(),
+      color: $("#customerVehicleColor").value.trim(),
+      km: $("#customerVehicleKm").value.trim(),
+      notes: $("#vehicleNotes").value.trim()
+    };
+    try {
+      editingVehicleId ? await updateVehicle(payload) : await createVehicle(payload);
+      clearVehicleForm();
+      setMessage($("#vehicleMessage"), "Veículo salvo com sucesso.", true);
+      await loadCustomers();
+    } catch (error) {
+      setMessage($("#vehicleMessage"), error.message);
+    }
+  });
+  $("#customersTable")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    if (button.dataset.action === "edit-customer") {
+      const customer = customers.find((item) => Number(item.id) === Number(button.dataset.id));
+      if (customer) fillCustomerForm(customer);
+    }
+  });
+  $("#vehiclesTable")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    if (button.dataset.action === "edit-vehicle") {
+      const vehicle = vehicles.find((item) => Number(item.id) === Number(button.dataset.id));
+      if (vehicle) fillVehicleForm(vehicle);
+    }
+  });
+  $("#serviceOrdersTable")?.addEventListener("change", async (event) => {
+    const select = event.target.closest("[data-action='change-service-order-status']");
+    if (!select) return;
+    const order = serviceOrders.find((item) => Number(item.id) === Number(select.dataset.id));
+    if (!order) return;
+    try {
+      await updateServiceOrder({ ...order, status: select.value });
+      await loadServiceOrders();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
   $("#addPartButton").addEventListener("click", () => addPartRow());
   $("#addLaborButton").addEventListener("click", () => addLaborRow());
   document.querySelectorAll("[data-budget-section]").forEach((button) => {
     button.addEventListener("click", () => openBudgetSection(button.dataset.budgetSection, button));
+  });
+  document.querySelectorAll(".side-submenu-button[data-view]").forEach((button) => {
+    button.addEventListener("click", () => openOperationsView(button.dataset.view, button));
   });
   document.querySelectorAll("[data-finance-section]").forEach((button) => {
     button.addEventListener("click", () => openFinanceSection(button.dataset.financeSection, button));
@@ -2266,13 +3380,13 @@ function bindEvents() {
       return;
     }
 
-    if (!isEditingUser && password.length < 6) {
-      setMessage($("#userCreateMessage"), "Informe uma senha com pelo menos 6 caracteres.");
+    if (!isEditingUser && password.length < 12) {
+      setMessage($("#userCreateMessage"), "Informe uma senha com pelo menos 12 caracteres.");
       return;
     }
 
-    if (isEditingUser && password && password.length < 6) {
-      setMessage($("#userCreateMessage"), "A nova senha precisa ter pelo menos 6 caracteres.");
+    if (isEditingUser && password && password.length < 12) {
+      setMessage($("#userCreateMessage"), "A nova senha precisa ter pelo menos 12 caracteres.");
       return;
     }
 
@@ -2283,7 +3397,7 @@ function bindEvents() {
       username,
       email,
       phone: $("#newUserPhone").value.trim(),
-      passwordHash: password ? await hashPassword(password) : selectedUser?.passwordHash,
+      ...(password ? { password } : {}),
       role: selectedUser?.role === "admin" ? "admin" : (accessLevel === "administrador" ? "admin-user" : "user"),
       accessLevel,
       blocked: selectedUser?.blocked || false,
@@ -2300,7 +3414,8 @@ function bindEvents() {
           email: payload.email,
           phone: payload.phone || "",
           role: payload.role || "user",
-          accessLevel: payload.accessLevel
+          accessLevel: payload.accessLevel,
+          isPlatformAdmin: Boolean(payload.isPlatformAdmin)
         };
         sessionStorage.setItem("oficina_user", JSON.stringify(currentUser));
       }
@@ -2360,6 +3475,19 @@ function bindEvents() {
 
   $("#plate").addEventListener("blur", () => {
     $("#plate").value = $("#plate").value.toUpperCase();
+    const vehicle = findVehicleByPlateInput();
+    if (vehicle) fillBudgetVehicleFields(vehicle);
+  });
+
+  ["clientEmail", "clientPhone"].forEach((id) => {
+    $(`#${id}`)?.addEventListener("blur", () => {
+      if ($("#budgetCustomerSelect").value) return;
+      const customer = findCustomerByContact();
+      if (!customer) return;
+      $("#budgetCustomerSelect").value = customer.id;
+      fillBudgetCustomerFields(customer);
+      renderBudgetVehicleOptions(customer.id);
+    });
   });
 
   $("#vehicleKm").addEventListener("blur", () => {
@@ -2507,6 +3635,7 @@ function bindEvents() {
     if (button.dataset.action === "print") printBudget(budget);
     if (button.dataset.action === "approve" && canApproveBudget(budget)) await changeBudgetStatus(button.dataset.id, STATUS.approved);
     if (button.dataset.action === "reject" && canApproveBudget(budget)) await changeBudgetStatus(button.dataset.id, STATUS.rejected);
+    if (button.dataset.action === "create-os" && canGenerateServiceOrder(budget)) await generateServiceOrderFromBudget(budget);
     if (button.dataset.action === "delete" && canDeleteBudget(budget)) await removeBudget(button.dataset.id);
   });
 
@@ -2546,6 +3675,10 @@ function bindEvents() {
     const budget = selectedBudget();
     if (canApproveBudget(budget)) await changeBudgetStatus(budget.id, STATUS.rejected);
   });
+  $("#modalCreateOsButton").addEventListener("click", async () => {
+    const budget = selectedBudget();
+    if (canGenerateServiceOrder(budget)) await generateServiceOrderFromBudget(budget);
+  });
   $("#modalDeleteButton").addEventListener("click", async () => {
     const budget = selectedBudget();
     if (canDeleteBudget(budget)) await removeBudget(budget.id);
@@ -2554,8 +3687,6 @@ function bindEvents() {
 
 async function init() {
   await api("/health");
-  await loadSettings();
-  await ensureMasterUser();
   loadUiPreferences();
   loadRememberedLogin();
   bindEvents();
@@ -2563,9 +3694,16 @@ async function init() {
   clearPayableForm();
 
   const sessionUser = sessionStorage.getItem("oficina_user");
-  if (sessionUser) {
+  const sessionToken = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  if (sessionUser && sessionToken) {
     currentUser = JSON.parse(sessionUser);
-    showApp();
+    currentUser.isPlatformAdmin = Boolean(currentUser.isPlatformAdmin);
+    try {
+      await showApp();
+    } catch (error) {
+      console.warn(error);
+      showAuth();
+    }
   }
 }
 

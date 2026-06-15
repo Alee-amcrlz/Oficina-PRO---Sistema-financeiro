@@ -1,2 +1,15 @@
-.codex_spreadsheet_work/
+.env
+*.log
+*.db-journal
+backups/
+exports/
+*.sqlite
+*.sqlite3
 __pycache__/
+*.pyc
+.venv/
+venv/
+.codex_spreadsheet_work/
+dist/
+build/
+node_modules/

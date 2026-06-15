@@ -1,0 +1,135 @@
+from pathlib import Path
+from urllib.parse import urlparse
+import os
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_env_file(path):
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def fail(message, failures):
+    failures.append(message)
+    print(f"[ERRO] {message}")
+
+
+def warn(message):
+    print(f"[AVISO] {message}")
+
+
+def ok(message):
+    print(f"[OK] {message}")
+
+
+def valid_public_url(value):
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def main():
+    load_env_file(ROOT / ".env")
+    env = os.environ.get("APP_ENV", "local").lower()
+    host = os.environ.get("HOST", "127.0.0.1")
+    database_url = os.environ.get("DATABASE_URL", "")
+    sqlite_path = os.environ.get("SQLITE_PATH", "oficina.db")
+    default_admin_email = os.environ.get("DEFAULT_ADMIN_EMAIL", "master@oficina.local").strip().lower()
+    default_admin_username = os.environ.get("DEFAULT_ADMIN_USERNAME", "master").strip().lower()
+    default_admin_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "Master@123")
+    min_user_password_length = int(os.environ.get("MIN_USER_PASSWORD_LENGTH", "12"))
+    billing_provider = os.environ.get("BILLING_PROVIDER", "manual").strip().lower()
+    mercadopago_access_token = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "").strip()
+    mercadopago_webhook_secret = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
+    mercadopago_webhook_max_skew = int(os.environ.get("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS", "600"))
+    public_app_url = os.environ.get("PUBLIC_APP_URL", "").strip()
+    marketing_site_url = os.environ.get("MARKETING_SITE_URL", "").strip()
+    failures = []
+
+    ok(f"APP_ENV={env}")
+
+    if env in {"staging", "production"} and host in {"127.0.0.1", "localhost"}:
+        fail("HOST precisa ser 0.0.0.0 em ambiente online.", failures)
+    else:
+        ok(f"HOST={host}")
+
+    if database_url:
+        try:
+            import psycopg  # type: ignore  # noqa: F401
+        except ImportError:
+            fail('DATABASE_URL exige a dependência "psycopg[binary]".', failures)
+        else:
+            ok("DATABASE_URL configurado para PostgreSQL.")
+    elif env == "production":
+        fail("APP_ENV=production exige DATABASE_URL com PostgreSQL gerenciado.", failures)
+    else:
+        warn(f"Sem DATABASE_URL. Usando SQLite em {sqlite_path}. Adequado apenas para local/staging controlado.")
+
+    if env in {"staging", "production"}:
+        if not valid_public_url(public_app_url):
+            fail("PUBLIC_APP_URL precisa ser uma URL pública válida em ambiente online.", failures)
+        if default_admin_email == "master@oficina.local":
+            fail("DEFAULT_ADMIN_EMAIL precisa ser alterado em ambiente online.", failures)
+        if default_admin_username == "master":
+            fail("DEFAULT_ADMIN_USERNAME precisa ser alterado em ambiente online.", failures)
+        if default_admin_password == "Master@123":
+            fail("DEFAULT_ADMIN_PASSWORD precisa ser alterada em ambiente online.", failures)
+        if len(default_admin_password) < 12:
+            fail("DEFAULT_ADMIN_PASSWORD precisa ter pelo menos 12 caracteres em ambiente online.", failures)
+        if min_user_password_length < 12:
+            fail("MIN_USER_PASSWORD_LENGTH precisa ser pelo menos 12 em ambiente online.", failures)
+        if mercadopago_webhook_secret and len(mercadopago_webhook_secret) < 32:
+            fail("MERCADOPAGO_WEBHOOK_SECRET precisa ter pelo menos 32 caracteres em ambiente online.", failures)
+        if mercadopago_webhook_max_skew < 60:
+            fail("MERCADOPAGO_WEBHOOK_MAX_SKEW_SECONDS precisa ser pelo menos 60 em ambiente online.", failures)
+
+    if billing_provider not in {"manual", "mercadopago"}:
+        fail("BILLING_PROVIDER precisa ser manual ou mercadopago.", failures)
+    elif billing_provider == "manual" and env == "staging":
+        warn("BILLING_PROVIDER=manual em staging. Adequado apenas para homologação sem cobrança real.")
+    else:
+        ok(f"BILLING_PROVIDER={billing_provider}")
+
+    if env == "production":
+        if billing_provider != "mercadopago":
+            fail("Produção exige BILLING_PROVIDER=mercadopago.", failures)
+        if not mercadopago_access_token:
+            fail("Produção exige MERCADOPAGO_ACCESS_TOKEN.", failures)
+        if not mercadopago_webhook_secret:
+            fail("Produção exige MERCADOPAGO_WEBHOOK_SECRET.", failures)
+        if not public_app_url.startswith("https://"):
+            fail("Produção exige PUBLIC_APP_URL com HTTPS.", failures)
+    elif env == "staging" and billing_provider == "mercadopago" and not public_app_url.startswith("https://"):
+        fail("Staging com BILLING_PROVIDER=mercadopago exige PUBLIC_APP_URL com HTTPS.", failures)
+
+    if marketing_site_url:
+        if not valid_public_url(marketing_site_url):
+            fail("MARKETING_SITE_URL precisa ser uma URL valida.", failures)
+        elif env == "production" and not marketing_site_url.startswith("https://"):
+            fail("MARKETING_SITE_URL precisa usar HTTPS em produção.", failures)
+        else:
+            ok("MARKETING_SITE_URL configurada para integração com o site.")
+
+    iterations = int(os.environ.get("PASSWORD_HASH_ITERATIONS", "260000"))
+    if iterations < 260000:
+        fail("PASSWORD_HASH_ITERATIONS abaixo do mínimo recomendado.", failures)
+    else:
+        ok("PASSWORD_HASH_ITERATIONS adequado.")
+
+    if failures:
+        print("\nPreflight reprovado.")
+        return 1
+    print("\nPreflight aprovado.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

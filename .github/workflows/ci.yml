@@ -1,0 +1,221 @@
+name: Oficina Pro CI
+
+on:
+  push:
+    branches:
+      - codex/oficina-pro-v1.1
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      MERCADOPAGO_WEBHOOK_SECRET: ci-webhook-secret-with-32-characters
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Python syntax
+        run: python -m py_compile server.py scripts/preflight.py scripts/backup_sqlite.py scripts/restore_sqlite_backup.py scripts/smoke_api.py scripts/smoke_multiempresa.py scripts/smoke_billing_checkout.py scripts/smoke_billing_webhook.py scripts/smoke_public_site_integration.py scripts/smoke_preflight_security.py scripts/smoke_runtime_config.py scripts/smoke_security_headers.py scripts/smoke_origin_guard.py scripts/smoke_password_policy.py scripts/smoke_platform_privacy.py scripts/smoke_session_revocation.py scripts/verify_staging.py scripts/validate_schema.py scripts/validate_migrations.py scripts/validate_data_tables.py scripts/apply_migrations.py scripts/generate_deploy_secrets.py scripts/release_check.py scripts/export_sqlite_jsonl.py scripts/export_postgres_jsonl.py scripts/apply_postgres_baseline.py scripts/import_jsonl_to_postgres.py
+
+      - name: JavaScript syntax
+        run: |
+          node --check app.js
+          node --check site.js
+
+      - name: Preflight
+        run: python scripts/preflight.py
+
+      - name: Smoke preflight security
+        run: python scripts/smoke_preflight_security.py
+
+      - name: Smoke runtime config
+        run: python scripts/smoke_runtime_config.py
+
+      - name: Smoke security headers
+        run: python scripts/smoke_security_headers.py
+
+      - name: Validate migrations
+        run: python scripts/validate_migrations.py
+
+      - name: Validate export/import table policy
+        run: python scripts/validate_data_tables.py
+
+      - name: Validate schema
+        run: python scripts/validate_schema.py
+
+      - name: Validate SQLite backup restore
+        run: |
+          python scripts/backup_sqlite.py
+          python scripts/restore_sqlite_backup.py --latest --target restore-test.db --no-safety-backup
+          SQLITE_PATH=restore-test.db python scripts/validate_schema.py
+
+      - name: Export SQLite data
+        run: python scripts/export_sqlite_jsonl.py
+
+      - name: Validate PostgreSQL import package
+        run: python scripts/import_jsonl_to_postgres.py --dry-run
+
+      - name: Start server
+        run: |
+          python server.py > server.log 2>&1 &
+          echo $! > server.pid
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:4173/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat server.log
+          exit 1
+
+      - name: Ready check
+        run: curl -fsS http://127.0.0.1:4173/api/ready
+
+      - name: Smoke API
+        env:
+          SMOKE_TENANT_LOGIN: dono.essencial.20260608131630@oficinapro.local
+          SMOKE_TENANT_PASSWORD: Teste@123
+        run: python scripts/smoke_api.py
+
+      - name: Smoke public site integration
+        run: python scripts/smoke_public_site_integration.py
+
+      - name: Smoke multiempresa
+        run: python scripts/smoke_multiempresa.py
+
+      - name: Smoke password policy
+        run: python scripts/smoke_password_policy.py
+
+      - name: Smoke platform privacy
+        run: python scripts/smoke_platform_privacy.py
+
+      - name: Smoke session revocation
+        run: python scripts/smoke_session_revocation.py
+
+      - name: Smoke billing checkout
+        run: python scripts/smoke_billing_checkout.py
+
+      - name: Smoke billing webhook
+        run: python scripts/smoke_billing_webhook.py
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill "$(cat server.pid)" || true
+          fi
+
+  postgres-runtime:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: oficina
+          POSTGRES_PASSWORD: oficina
+          POSTGRES_DB: oficina_pro_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oficina -d oficina_pro_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      APP_ENV: staging
+      HOST: 0.0.0.0
+      PORT: 4173
+      DATABASE_URL: postgresql://oficina:oficina@localhost:5432/oficina_pro_ci
+      DEFAULT_ADMIN_NAME: MASTER CI
+      DEFAULT_ADMIN_USERNAME: master_ci
+      DEFAULT_ADMIN_EMAIL: master.ci@oficinapro.local
+      DEFAULT_ADMIN_PASSWORD: MasterCi@12345
+      SMOKE_MASTER_LOGIN: master.ci@oficinapro.local
+      SMOKE_MASTER_PASSWORD: MasterCi@12345
+      MERCADOPAGO_WEBHOOK_SECRET: ci-webhook-secret-with-32-characters
+      PUBLIC_APP_URL: https://oficina-pro-ci.example.com
+      MARKETING_SITE_URL: https://site.oficinapro.example.com
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Preflight PostgreSQL
+        run: python scripts/preflight.py
+
+      - name: Apply PostgreSQL migrations
+        run: python scripts/apply_migrations.py
+
+      - name: Start PostgreSQL-backed server
+        run: |
+          python server.py > server-postgres.log 2>&1 &
+          echo $! > server-postgres.pid
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/api/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat server-postgres.log
+          exit 1
+
+      - name: Ready check PostgreSQL
+        run: curl -fsS http://127.0.0.1:4173/api/ready
+
+      - name: Smoke origin guard PostgreSQL
+        run: python scripts/smoke_origin_guard.py
+
+      - name: Smoke API PostgreSQL
+        run: python scripts/smoke_api.py
+
+      - name: Smoke public site integration PostgreSQL
+        run: python scripts/smoke_public_site_integration.py
+
+      - name: Smoke multiempresa PostgreSQL
+        run: python scripts/smoke_multiempresa.py
+
+      - name: Smoke password policy PostgreSQL
+        run: python scripts/smoke_password_policy.py
+
+      - name: Smoke platform privacy PostgreSQL
+        run: python scripts/smoke_platform_privacy.py
+
+      - name: Smoke session revocation PostgreSQL
+        run: python scripts/smoke_session_revocation.py
+
+      - name: Smoke billing checkout PostgreSQL
+        run: python scripts/smoke_billing_checkout.py
+
+      - name: Smoke billing webhook PostgreSQL
+        run: python scripts/smoke_billing_webhook.py
+
+      - name: Export PostgreSQL data
+        run: python scripts/export_postgres_jsonl.py
+
+      - name: Stop PostgreSQL-backed server
+        if: always()
+        run: |
+          if [ -f server-postgres.pid ]; then
+            kill "$(cat server-postgres.pid)" || true
+          fi

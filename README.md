@@ -2,6 +2,10 @@
 
 Sistema local para oficina mecânica com login, cadastro de usuários, criação de orçamentos, aprovação/reprovação e controle financeiro.
 
+Versão atual: **v1.1 - Fundação SaaS e Painel Master**.
+
+Esta versão está em homologação local e prepara o sistema para multiempresa, autenticação com sessão, assinatura e monitoramento da plataforma.
+
 ## Como usar
 
 1. Dê dois cliques em `iniciar_sistema.bat` ou rode `python server.py` nesta pasta.
@@ -13,6 +17,14 @@ Sistema local para oficina mecânica com login, cadastro de usuários, criação
 7. Use **Aprovar** ou **Reprovar** depois do retorno do cliente.
 8. Somente orçamentos aprovados aparecem em **Financeiro > Fluxo de caixa**.
 
+## Site de divulgação
+
+- Página pública: `http://127.0.0.1:4173/site.html`
+- Página de escolha de plano: `http://127.0.0.1:4173/assinar.html`
+- O site carrega planos por `GET /api/public/plans`.
+- O formulário de assinatura registra interesse por `POST /api/public/leads`.
+- Em homologação, esse fluxo não cria cobrança real.
+
 ## Usuário administrador
 
 O sistema cria automaticamente um usuário administrador:
@@ -20,9 +32,11 @@ O sistema cria automaticamente um usuário administrador:
 - E-mail: `master@oficina.local`
 - Senha: `Master@123`
 
-O usuário MASTER visualiza todos os orçamentos e todo o financeiro do sistema.
+Essas credenciais são apenas para homologação local. Em staging e produção, configure `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_USERNAME` e `DEFAULT_ADMIN_PASSWORD` com valores exclusivos e fortes.
 
-Usuários criados pelo MASTER em **Configurações** recebem a senha padrão informada no cadastro.
+O usuário administrador da plataforma acessa o Painel Master para gestão de oficinas, assinaturas, pagamentos SaaS e auditoria. O Painel Master não exibe faturamento operacional das oficinas por padrão.
+
+Usuários criados nas configurações da oficina recebem senha definida no cadastro e devem seguir a política mínima de senha configurada no ambiente.
 
 ## Banco de dados
 
@@ -30,15 +44,83 @@ O sistema usa **SQLite local**. Os dados ficam no arquivo `oficina.db`, salvo ne
 
 Esse banco é compartilhado por qualquer navegador que abra `http://127.0.0.1:4173/` neste computador. Para backup, copie o arquivo `oficina.db` com o sistema fechado.
 
+O banco já possui uma base inicial para multiempresa: a tabela `companies` e o campo `companyId` nas tabelas principais. Os dados locais atuais ficam vinculados à empresa padrão **Oficina Pro Local**.
+
+Este banco local está sendo usado como ambiente de homologação. Ele pode receber testes de migração, autenticação, multiempresa, assinaturas e painel master antes de qualquer ambiente de produção.
+
+Para produção comercial SaaS, a recomendação técnica é migrar para PostgreSQL gerenciado. Consulte `docs/POSTGRESQL.md`.
+
+## Preparação para nuvem
+
+- Configuração por ambiente via `.env`.
+- Exemplo de configuração em `.env.example`.
+- `Dockerfile` e `Procfile` para deploy inicial.
+- `render.yaml` para staging controlado no Render com PostgreSQL gerenciado.
+- Preflight técnico em `python scripts/preflight.py`.
+- Release check local em `python scripts/release_check.py`.
+- Geração local de segredos de deploy em `python scripts/generate_deploy_secrets.py`.
+- Validação de schema em `python scripts/validate_schema.py`.
+- Validação de governança de migrações em `python scripts/validate_migrations.py`.
+- Backup SQLite de homologação em `python scripts/backup_sqlite.py`.
+- Restore verificável de backup SQLite em `python scripts/restore_sqlite_backup.py`.
+- Guia de deploy em `docs/DEPLOY.md`.
+- Guia de operação SaaS em `docs/OPERACAO_SAAS.md`.
+- Guia de integração com site de divulgação em `docs/SITE_DIVULGACAO.md`.
+- Site público de divulgação em `site.html`, `assinar.html`, `site.css` e `site.js`.
+- Hash de senha novo com PBKDF2 e migração automática de hashes antigos no login.
+- Sessões persistidas no banco com hash do token, em vez de memória do processo.
+- Auditoria de tentativas de login com bloqueio temporário contra força bruta.
+- Usuário administrador inicial configurável por ambiente.
+- Primeira camada de runtime PostgreSQL via `DATABASE_URL`.
+- Headers básicos de segurança HTTP.
+- CSP, COOP e HSTS condicional em produção HTTPS.
+- Validação de origem para escritas em ambientes online, preservando webhooks assinados.
+- Smoke tests de API em `python scripts/smoke_api.py`.
+- Smoke test de configuração segura de runtime em `python scripts/smoke_runtime_config.py`.
+- Smoke test de política mínima de senha em `python scripts/smoke_password_policy.py`.
+- Smoke test de privacidade do Painel Master em `python scripts/smoke_platform_privacy.py`.
+- Smoke test de revogação de sessão em `python scripts/smoke_session_revocation.py`.
+- Smoke test de isolamento multiempresa em `python scripts/smoke_multiempresa.py`.
+- Smoke test de checkout de assinatura em `python scripts/smoke_billing_checkout.py`.
+- Smoke test de webhook Mercado Pago em `python scripts/smoke_billing_webhook.py`.
+- Verificação de staging público em `python scripts/verify_staging.py`.
+- Smoke test de integração com site público em `python scripts/smoke_public_site_integration.py`.
+- Registro de baseline de schema em `schema_migrations`.
+- Snapshot auditável do schema em `migrations/20260609_web_saas_baseline.sqlite.sql`.
+- Baseline PostgreSQL em `migrations/20260609_web_saas_baseline.postgres.sql`.
+- Migrações versionadas para sessões de banco e auditoria de login.
+- Migrações versionadas para checkout e eventos de webhook de cobrança.
+- Backend PostgreSQL inicial no servidor com aplicação de migrações pendentes.
+- Exportação SQLite JSONL para migração em `python scripts/export_sqlite_jsonl.py`.
+- Exportação PostgreSQL JSONL para backup lógico online em `python scripts/export_postgres_jsonl.py`.
+- Aplicação de migrações pendentes em `python scripts/apply_migrations.py`.
+- Importação JSONL para PostgreSQL em `python scripts/import_jsonl_to_postgres.py`.
+- Configuração de cobrança em `docs/PAGAMENTOS.md`.
+- CI no GitHub Actions para validar sintaxe, schema, preflight e smoke API.
+- CI também sobe PostgreSQL real e roda smoke API/multiempresa/checkout/webhook com `DATABASE_URL`.
+
 ## Recursos incluidos
 
 - Tela de login e cadastro de usuários.
-- Senhas armazenadas com hash SHA-256.
+- Login validado no servidor local.
+- Health check em `/api/health` e readiness check em `/api/ready`.
+- Sessão com token temporário após o login.
+- Rotas da API protegidas por token, exceto saúde do sistema e login.
+- Senhas armazenadas com PBKDF2 e migração automática de hashes legados no login.
+- A opção de lembrar acesso salva apenas o usuário/e-mail, não a senha.
 - Cadastro de cliente, e-mail, telefone, endereço, veículo, placa, peças, mão de obra e observações.
+- Cadastro central de clientes e veículos para histórico operacional.
+- Orçamento pode reutilizar cliente e veículo já cadastrados.
+- Seleção de veículo no orçamento também preenche automaticamente o proprietário.
+- Busca automática por e-mail, telefone ou placa para evitar redigitação.
 - Lançamento separado de peças com quantidade, descrição e valor unitário.
 - Lançamento separado de mão de obra com descrição e valor.
 - Resumo automático de total em peças, total em mão de obra e total do orçamento.
 - Menu Atendimento com Orçamentos, Novo orçamento, Aprovados, Reprovados e Pendentes.
+- Menu Atendimento com Clientes e veículos.
+- Menu Atendimento com Ordens de serviço.
+- Geração de ordem de serviço a partir de orçamento aprovado.
+- Acompanhamento de OS por status: aberta, em andamento, aguardando peça, concluída e entregue.
 - Menu Financeiro com Contas à pagar, Tabela de custos e Fluxo de caixa.
 - Visualização de orçamentos aprovados diretamente no fluxo de caixa.
 - Edição de orçamento aprovado com retorno automático para pendente e nova aprovação.
@@ -53,3 +135,30 @@ Esse banco é compartilhado por qualquer navegador que abra `http://127.0.0.1:41
 - Envio por e-mail via aplicativo de e-mail padrão do computador.
 - Impressão do orçamento.
 - Fluxo de caixa contabilizando apenas orçamentos aprovados.
+- Base inicial multiempresa com empresa padrão, vínculo de usuários e filtro por `companyId` nas rotas da API.
+- Base inicial de assinatura com tabelas `subscriptions` e `payments`.
+- Contratação ou alteração de plano pelo cliente a partir do painel "Minha assinatura".
+- Painel Master monitora contratações recentes iniciadas pelas oficinas.
+- Endpoints públicos para site de divulgação listar planos e enviar leads sem iniciar cobrança.
+- Entrada segura de webhook Mercado Pago com validação por assinatura e registro idempotente em `billing_webhook_events`.
+- Conciliação inicial de webhook autorizado para ativar assinatura somente após confirmação segura.
+- Registro automático e idempotente de pagamento aprovado quando o webhook traz ID e valor confiáveis.
+- Base inicial de Painel Master via API para monitorar empresas, planos, status de assinatura e pagamentos.
+- Tela inicial de Painel Master, visível apenas para usuário plataforma, com resumo de oficinas, assinaturas e pagamentos.
+- Cadastro de nova oficina pelo Painel Master com usuário dono e assinatura inicial.
+- Ações administrativas no Painel Master para atualizar assinatura e registrar pagamento manual.
+- Filtros no Painel Master por status, plano e busca por oficina.
+- Auditoria master para registrar criação de oficina, alteração de assinatura e lançamento de pagamento.
+- Catálogo comercial de planos: Essencial, Profissional e Premium.
+- Ciclos de cobrança: mensal, trimestral e anual.
+- Regras de acesso por plano aplicadas no frontend e backend.
+- Resumo "Minha assinatura" no painel do cliente.
+- Painel Master não exibe faturamento operacional das oficinas por padrão; acesso a valores da oficina fica reservado para suporte autorizado e auditável.
+
+## Planos em homologação
+
+| Plano | Indicação | Recursos principais | Usuários | Mensal | Trimestral | Anual |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Essencial | Oficina pequena começando a organizar atendimento | Painel e orçamentos | 1 | R$ 59,00 | R$ 159,00 | R$ 549,00 |
+| Profissional | Plano principal para operação completa | Orçamentos, financeiro, estoque e usuários | 5 | R$ 99,00 | R$ 267,00 | R$ 949,00 |
+| Premium | Operação maior ou gestão avançada | Recursos do Profissional, mais usuários, relatórios avançados e suporte prioritário | 15 | R$ 149,00 | R$ 402,00 | R$ 1.399,00 |

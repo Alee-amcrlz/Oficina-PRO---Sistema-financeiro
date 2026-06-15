@@ -1,0 +1,61 @@
+# Render Blueprint for Oficina Pro staging with managed PostgreSQL.
+# Secrets marked with sync: false must be filled in the Render dashboard.
+
+databases:
+  - name: oficina-pro-staging-db
+    plan: basic-256mb
+    region: oregon
+    databaseName: oficina_pro_staging
+    user: oficina_pro
+    diskSizeGB: 15
+
+services:
+  - type: web
+    name: oficina-pro-staging
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: codex/oficina-pro-v1.1
+    healthCheckPath: /api/health
+    preDeployCommand: python scripts/preflight.py && python scripts/validate_migrations.py && python scripts/apply_migrations.py
+    autoDeployTrigger: "off"
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: oficina-pro-staging-db
+          property: connectionString
+      - key: SESSION_TTL_SECONDS
+        value: 28800
+      - key: PASSWORD_HASH_ITERATIONS
+        value: 260000
+      - key: LOGIN_MAX_ATTEMPTS
+        value: 5
+      - key: LOGIN_WINDOW_SECONDS
+        value: 900
+      - key: LOGIN_LOCK_SECONDS
+        value: 900
+      - key: BILLING_PROVIDER
+        value: manual
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: MARKETING_SITE_URL
+        sync: false
+      - key: DEFAULT_ADMIN_NAME
+        value: MASTER
+      - key: DEFAULT_ADMIN_USERNAME
+        sync: false
+      - key: DEFAULT_ADMIN_EMAIL
+        sync: false
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false

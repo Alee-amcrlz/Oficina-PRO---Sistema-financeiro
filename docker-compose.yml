@@ -1,0 +1,17 @@
+services:
+  oficina-pro:
+    build: .
+    environment:
+      APP_ENV: staging
+      HOST: 0.0.0.0
+      PORT: 4173
+      SQLITE_PATH: /data/oficina.db
+      SESSION_TTL_SECONDS: 28800
+      PASSWORD_HASH_ITERATIONS: 260000
+    ports:
+      - "4173:4173"
+    volumes:
+      - oficina-pro-data:/data
+
+volumes:
+  oficina-pro-data:
